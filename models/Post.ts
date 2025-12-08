@@ -1,0 +1,22 @@
+import { Poll } from './Poll';
+import { User } from './User';
+
+export interface Post {
+  id: string;
+  user: User;
+  text: string;
+  media?: { type: 'image' | 'video'; url: string }[];
+  poll?: Poll;
+  quoted_post?: Post;
+  parent_post_id?: string;
+  parent_post?: Post;
+  child_posts?: Post[];
+  created_at: string;
+  is_deleted: boolean;
+  repost_count: number;
+  quote_count: number;
+  like_count: number;
+  dislike_count: number;
+  is_edited?: boolean;
+  reply_count?: number;
+}
