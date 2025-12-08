@@ -1,8 +1,8 @@
 
+import { PollOption, Poll as PollType } from '@/models/Poll';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Image, Linking, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { PollOption, Poll as PollType } from '../app/models/Poll';
 
 interface PollProps {
   poll: PollType;

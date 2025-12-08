@@ -1,17 +1,21 @@
 
 import { User } from '@/models/User';
+import { supabase } from '@/utils/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import { FlatList, Image, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
-// Mock current user data
+// Hardcoded test user ID until auth is fully implemented
+const TEST_USER_ID = 'f358fafe-e96e-4731-9360-03be395efded';
+
+// Mock current user data - in real app, fetch this from Supabase using TEST_USER_ID
 const currentUser: User = {
-  id: '1',
-  username: 'current_user',
-  display_name: 'Current User',
+  id: TEST_USER_ID,
+  username: 'test_user',
+  display_name: 'Test User',
   profile_picture_url: 'https://randomuser.me/api/portraits/men/1.jpg',
-  email: 'current_user@example.com',
+  email: 'test@example.com',
   created_at: new Date().toISOString(),
 };
 
@@ -30,11 +34,56 @@ export default function NewPostScreen() {
   const hasExceededLimit = useMemo(() => posts.some(p => p.text.length > MAX_CHARACTERS), [posts]);
   const isPostDisabled = totalCharCount === 0 || hasExceededLimit;
 
-  const handlePost = () => {
-    // Logic to submit the thread
-    // This would involve making a series of API calls
-    console.log('Posting thread:', posts);
-    router.back();
+  const handlePost = async () => {
+    try {
+      let threadRootId: string | null = null;
+      let parentPostId: string | null = null;
+
+      // Filter out empty posts
+      const validPosts = posts.filter(p => p.text.trim().length > 0);
+      if (validPosts.length === 0) return;
+
+      for (let i = 0; i < validPosts.length; i++) {
+        const postInput = validPosts[i];
+
+        const { data, error } = await supabase
+          .from('posts')
+          .insert({
+            author_id: TEST_USER_ID,
+            content: postInput.text,
+            type: i === 0 ? 'normal' : 'reply', // First is normal (or reply if replying to another), subsequent are thread replies
+            parent_post_id: parentPostId,
+            thread_root_id: threadRootId,
+          })
+          .select()
+          .single() as { data: { id: string } | null; error: any };
+
+        if (error) throw error;
+        if (!data) throw new Error("No data returned from insert");
+
+        const newPostId = data.id;
+
+        // If this is the first post, it might be the root (unless we are replying to *another* thread, which isn't handled here yet)
+        if (i === 0) {
+          threadRootId = newPostId;
+        } else {
+          // For subsequent posts in thread, insert into post_threads
+          await supabase.from('post_threads').insert({
+            parent_post_id: parentPostId,
+            child_post_id: newPostId
+          });
+        }
+
+        // The current post becomes parent for the next
+        parentPostId = newPostId;
+      }
+
+      console.log('Thread posted successfully');
+      router.back();
+    } catch (e) {
+      console.error("Error posting thread:", e);
+      alert("Failed to post. Check console.");
+    }
   };
 
   const addPostInput = () => {

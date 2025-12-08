@@ -1,7 +1,7 @@
 
-import { Poll } from "@/models/Poll";
 import { Post } from "@/models/Post";
 import { User } from "@/models/User";
+import { supabase } from "@/utils/supabase"; // Import supabase
 import { useEffect, useState } from "react";
 import { Alert, FlatList, View } from "react-native";
 import PostCard from "../components/PostCard";
@@ -27,137 +27,85 @@ function buildThreadTree(posts: Post[], parentId: string | null = null): Post[] 
     }));
 }
 
-const generateDummyPosts = (): Post[] => {
-  const now = new Date();
-  const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
-  const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-  const twoHoursAgo = new Date(now.getTime() - 120 * 60 * 1000);
+// -----------------------------------------------------------
+// 🔥 Fetch posts and profiles from Supabase
+// -----------------------------------------------------------
+const fetchPosts = async (): Promise<Post[]> => {
+  try {
+    // 1. Fetch posts
+    const { data: postsData, error: postsError } = await supabase
+      .from("posts")
+      .select("*")
+      .order("created_at", { ascending: false });
 
-  const dummyPoll: Poll = {
-    id: "poll1",
-    question: "What is your favorite color?",
-    options: [
-      { id: "opt1", text: "Red", votes: 3 },
-      { id: "opt2", text: "Blue", votes: 5 },
-      { id: "opt3", text: "Green", votes: 2 },
-    ],
-    total_votes: 10,
-    expires_at: new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString(),
-    allows_multiple_choices: false,
-  };
+    if (postsError) throw postsError;
+    if (!postsData || postsData.length === 0) return [];
 
-  const threadUser: User = {
-    id: "4",
-    username: "threader",
-    display_name: "Threader",
-    profile_picture_url: "https://randomuser.me/api/portraits/women/4.jpg",
-    email: "threader@example.com",
-    created_at: new Date().toISOString(),
-  };
+    // 2. Get unique author IDs
+    const authorIds = Array.from(new Set(postsData.map((p) => p.author_id)));
 
-  // -----------------------------------------------------------
-  // 🔥 Define flat list of posts (thread + normal posts)
-  // -----------------------------------------------------------
-  const flatPosts: Post[] = [
-    // Thread posts
-    {
-      id: "thread1",
-      user: threadUser,
-      text: "This is the start of a great thread!",
-      created_at: twoHoursAgo.toISOString(),
-      like_count: 50,
-      repost_count: 20,
-      quote_count: 0,
-      dislike_count: 2,
-      reply_count: 10,
-      is_deleted: false,
-    },
-    {
-      id: "thread2",
-      user: threadUser,
-      text: "Here is the second part of the thread. It continues the discussion.",
-      created_at: oneHourAgo.toISOString(),
-      like_count: 40,
-      repost_count: 15,
-      quote_count: 0,
-      dislike_count: 1,
-      reply_count: 5,
-      is_deleted: false,
-      parent_post_id: "thread1",
-    },
-    {
-      id: "thread3",
-      user: threadUser,
-      text: "And the final part of this engaging thread. Thanks for reading!",
-      created_at: fiveMinutesAgo.toISOString(),
-      like_count: 30,
-      repost_count: 10,
-      quote_count: 0,
-      dislike_count: 0,
-      reply_count: 3,
-      is_deleted: false,
-      parent_post_id: "thread2",
-    },
+    // 3. Fetch profiles for those authors
+    const { data: profilesData, error: profilesError } = await supabase
+      .from("profiles")
+      .select("*")
+      .in("id", authorIds);
 
-    // Normal posts
-    {
-      id: "1",
-      user: {
-        id: "2",
-        username: "testuser",
-        display_name: "Test User",
-        profile_picture_url: "https://randomuser.me/api/portraits/men/2.jpg",
-        email: "testuser@example.com",
+    if (profilesError) throw profilesError;
+
+    // 4. Map profiles by ID for easy lookup
+    const profilesMap = new Map();
+    profilesData?.forEach((profile) => {
+      profilesMap.set(profile.id, profile);
+    });
+
+    // 5. Construct Post objects with User data
+    const posts: Post[] = postsData.map((p) => {
+      const profile = profilesMap.get(p.author_id);
+
+      const user: User = profile ? {
+        ...profile,
+      } : {
+        // Fallback if profile not found
+        id: p.author_id,
+        username: "Unknown",
+        display_name: "Unknown User",
+        email: "",
         created_at: new Date().toISOString(),
-      },
-      text: "This is the first post with a poll!",
-      created_at: fiveMinutesAgo.toISOString(),
-      like_count: 10,
-      repost_count: 5,
-      quote_count: 0,
-      dislike_count: 1,
-      reply_count: 2,
-      is_deleted: false,
-      poll: dummyPoll,
-    },
-    {
-      id: "2",
-      user: {
-        id: "3",
-        username: "anotheruser",
-        display_name: "Another User",
-        profile_picture_url: "https://randomuser.me/api/portraits/women/2.jpg",
-        email: "anotheruser@example.com",
-        created_at: new Date().toISOString(),
-      },
-      text: "This is another post without a poll.",
-      created_at: oneHourAgo.toISOString(),
-      like_count: 20,
-      repost_count: 15,
-      quote_count: 0,
-      dislike_count: 0,
-      reply_count: 5,
-      is_deleted: false,
-    },
-  ];
+      };
 
-  // -----------------------------------------------------------
-  // 🔥 Build thread: only keep the tree whose root is thread1
-  // -----------------------------------------------------------
-  const threadRoot = buildThreadTree(flatPosts).find((p) => p.id === "thread1");
+      return {
+        ...p,
+        user, // Attach the user object expected by the UI
+        text: p.content, // Map 'content' (DB) to 'text' (UI model)
+        like_count: 0, // TODO: Fetch counts
+        repost_count: 0,
+        quote_count: 0,
+        dislike_count: 0,
+        reply_count: 0,
+        is_deleted: !!p.deleted_at,
+      };
+    });
 
-  // Feed = thread tree + all non-thread root posts
-  return [
-    ...(threadRoot ? [threadRoot] : []),
-    ...flatPosts.filter((p) => p.parent_post_id === null && p.id !== "thread1"),
-  ];
+    // 6. Build Thread Tree (if needed, but for now flat list sorted by date is a good start for "Latest")
+    // If we want detailed threads, we'd use buildThreadTree explicitly. 
+    // For the main feed, showing thread roots + orphan posts is typical.
+    // Let's filter to only show top-level posts (no parent) OR implement the tree logic.
+    // For simplicity V1: Show all posts (or just roots).
+    // Let's just return all for now to verify data flow.
+    return posts; // .filter(p => !p.parent_post_id); 
+
+  } catch (error) {
+    console.error("Error fetching posts:", error);
+    return [];
+  }
 };
 
 export default function Index() {
   const [posts, setPosts] = useState<Post[]>([]);
 
   useEffect(() => {
-    setPosts(generateDummyPosts());
+    fetchPosts().then(setPosts);
+    // Optional: Subscribe to changes or refresh interval
   }, []);
 
   const handleVote = (pollId: string, optionIds: string[]) => {

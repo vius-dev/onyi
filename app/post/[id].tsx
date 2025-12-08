@@ -1,8 +1,8 @@
-import { useLocalSearchParams } from 'expo-router';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
-import { Post } from '@/app/models/Post';
 import PostCard from '@/components/PostCard';
-import { User } from '@/app/models/User';
+import { Post } from '@/models/Post';
+import { User } from '@/models/User';
+import { useLocalSearchParams } from 'expo-router';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 // Mock current user for demonstration
 const currentUser: User = {
@@ -16,7 +16,7 @@ const currentUser: User = {
 
 export default function PostDetailScreen() {
   const { post: postString } = useLocalSearchParams();
-  
+
   let post: Post;
   try {
     post = JSON.parse(postString as string);
@@ -38,16 +38,16 @@ export default function PostDetailScreen() {
 
   return (
     <ScrollView style={styles.container}>
-      <PostCard 
-        post={post} 
-        currentUser={currentUser} 
+      <PostCard
+        post={post}
+        currentUser={currentUser}
         onLike={onLike}
         onDislike={onDislike}
         onRepost={onRepost}
         onQuote={onQuote}
         onDelete={onDelete}
         onVote={onVote}
-        isDetailView={true} 
+        isDetailView={true}
       />
     </ScrollView>
   );
