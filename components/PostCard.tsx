@@ -306,7 +306,7 @@ const PostCard: React.FC<PostCardProps> = ({
             Replying to <Text style={styles.parentUsername}>@{post.user.username}</Text>
           </Text>
           <Text numberOfLines={2} style={styles.childSnippet}>
-            {firstChild?.text}
+            {firstChild?.content}
           </Text>
           {childCount > 1 && (
             <Text style={styles.moreReplies}>View {childCount - 1} more replies</Text>
@@ -318,7 +318,11 @@ const PostCard: React.FC<PostCardProps> = ({
 
   // Full thread children (detail view): render recursively below this card
   const renderThreadChildren = () => {
-    if (!hasChildren || !isDetailView) return null;
+    // Always show nested comments/replies, not just in detail view
+    console.log(`🔍 PostCard ${post.id}: hasChildren=${hasChildren}, child_posts=${post.child_posts?.length || 0}`);
+    if (!hasChildren) return null;
+
+    console.log(`✅ Rendering ${post.child_posts!.length} children for post ${post.id}`);
     return (
       <View style={styles.childrenContainer}>
         {post.child_posts!.map((ch, idx) => (
@@ -332,7 +336,7 @@ const PostCard: React.FC<PostCardProps> = ({
             onQuote={onQuote}
             onDelete={onDelete}
             onVote={onVote}
-            isDetailView={true}
+            isDetailView={isDetailView}
           />
         ))}
       </View>
@@ -350,7 +354,7 @@ const PostCard: React.FC<PostCardProps> = ({
           {renderThreadIndicator()}
           <View style={{ flex: 1 }}>
             {renderHeader()}
-            <Text style={styles.postText}>{post.text}</Text>
+            <Text style={styles.postText}>{post.content}</Text>
             {renderMedia()}
             {renderPoll()}
             {renderQuotedPost()}
@@ -373,7 +377,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
   },
   detailContainer: {
-    borderBottomWidth: 0, // No bottom border in detail view
+    borderBottomWidth: 0, // No bottom border in detail view 
   },
   deletedContainer: {
     alignItems: 'center',

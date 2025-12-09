@@ -167,4 +167,6 @@ expo-env.d.ts
 /ios
 /android
 
-
+# BACKEND_SETUP
+/BACKEND_SETUP.md
+BACKEND_SETUP.md

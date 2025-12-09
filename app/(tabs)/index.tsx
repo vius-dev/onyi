@@ -18,12 +18,22 @@ const defaultUser: User | null = null;
 // 🔥 Utility: Build a thread tree from flat posts
 // -----------------------------------------------------------
 function buildThreadTree(posts: Post[], parentId: string | null = null): Post[] {
-  return posts
+  const result = posts
     .filter((p) => p.parent_post_id === parentId)
     .map((p) => ({
       ...p,
       child_posts: buildThreadTree(posts, p.id),
     }));
+
+  // Debug logging
+  if (parentId === null) {
+    console.log('🔍 buildThreadTree - Total posts:', posts.length);
+    console.log('🔍 buildThreadTree - Posts with parent_post_id:', posts.filter(p => p.parent_post_id).length);
+    console.log('🔍 buildThreadTree - Top-level posts:', result.length);
+    console.log('🔍 buildThreadTree - First post children:', result[0]?.child_posts?.length || 0);
+  }
+
+  return result;
 }
 
 // -----------------------------------------------------------
@@ -118,6 +128,7 @@ const fetchPosts = async (currentUserId?: string): Promise<Post[]> => {
         ...p,
         user: p.user,
         text: p.content,
+        content: p.content, // Keep both for compatibility
         like_count: p.post_reactions?.[0]?.count || 0,
         repost_count: p.post_reposts?.[0]?.count || 0,
         quote_count: p.post_quotes?.[0]?.count || 0,

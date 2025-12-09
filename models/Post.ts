@@ -5,6 +5,7 @@ export interface Post {
   id: string;
   user: User;
   text: string;
+  content: string; // Database field (same as text)
   media?: { type: 'image' | 'video'; url: string }[];
   poll?: Poll;
   quoted_post?: Post;
