@@ -3328,3 +3328,567 @@ If you want, I can:
 * Write client-side examples (React Native + supabase-js) showing how to call the RPCs with optimistic UI.
 
 Which one do you want next?
+
+
+
+
+#########################
+
+
+
+
+Here is a **clear, complete explanation** of how **Comments (Replies)** behave in a Twitter-pre-2023 style system — including **structure, nesting rules, UI behavior, and lazy-loading**.
+This integrates cleanly with the Post / Thread model and feed/postcard design.
+
+---
+
+# ✅ **Comments / Replies — Behavior & Lazy Loading (Twitter Pre-2023 Model)**
+
+Comments on Twitter function as **child posts** that reply to a parent post. They follow a very specific set of rules that ensure:
+
+* The thread flows in one direction
+* Replies don’t break the main timeline
+* Deep threads remain readable
+* Large reply sets don’t overload the app
+
+Below is everything you need for your implementation.
+
+---
+
+# 🔹 1. **How Comments Function Structurally**
+
+A **comment = a post with `parent_post_id` pointing to another post**.
+
+Example data (simplified):
+
+```json
+{
+  "id": "C",
+  "post_type": "original",
+  "parent_post_id": "B",
+  "content": "This is a reply to post B"
+}
+```
+
+### Key rules:
+
+### **✓ A reply is a normal post**
+
+* Same table as all posts.
+* Has all the same fields: content, media, polls, etc.
+
+### **✓ The ONLY difference**
+
+`parent_post_id` references the post being replied to.
+
+### **✓ Replies can have replies**
+
+Unlimited depth — creating full thread chains:
+
+```
+A → B → C → D
+```
+
+---
+
+# 🔹 2. **Comment UI Behavior (Twitter-accurate)**
+
+### **When you open a post (detail view):**
+
+You typically see:
+
+1. **The root post** (the one you opened)
+2. **Its direct replies** (first level)
+3. A **collapsed thread preview** for any nested replies
+
+### Example:
+
+Post A
+↳ Reply B
+  ↳ Nested C (collapsed behind “Show Replies”)
+   ↳ Nested D (collapsed)
+↳ Reply E
+
+Twitter does **not** expand entire deep threads by default.
+
+---
+
+# 🔹 3. **How Replies Are Ordered**
+
+### **Top-level replies** are sorted by:
+
+1. **“Relevance”** (Twitter secret formula)
+   or
+2. **Latest first** (for your MVP)
+
+**Your MVP should use:**
+
+```
+ORDER BY created_at ASC
+```
+
+Or if you want a Twitter-like feel:
+
+```
+ORDER BY like_count DESC, created_at ASC
+```
+
+---
+
+# 🔹 4. **Lazy Loading Comment Strategy (Twitter Pre-2023)**
+
+Twitter does **not** load all comments at once.
+Only **batches** load when you scroll.
+
+### Why?
+
+* Some posts have **tens of thousands** of replies.
+* You cannot fetch them all on open.
+
+### Your pagination should be cursor-based:
+
+```
+GET /comments?parent=A&cursor=xyz&limit=20
+```
+
+### 🔸 What loads first?
+
+1. Load **20 top-level replies**
+2. For each reply, load **its first child** (preview)
+3. Show a “Show more replies” button for deeper branches
+
+This gives the classic “thread waterfall” effect.
+
+---
+
+# 🔹 5. **Nested Replies (Subthreads)**
+
+For deep chains:
+
+```
+A → B → C → D → E
+```
+
+Twitter shows:
+
+* The chain leading **directly to the post you opened**
+* Other branches are minimized or hidden behind “Show replies”.
+
+### In your app:
+
+* If the root post has a *single* reply which itself has a reply
+  → Show it as a **vertical thread line** (just like Twitter)
+
+Example UI:
+
+```
+A
+│
+B
+│
+C
+ Show replies >
+```
+
+---
+
+# 🔹 6. **Lazy Loading of Nested Replies**
+
+For each reply:
+
+* Load **only the first child** (if exists)
+* Display it in the thread chain
+* Behind that you show:
+
+```
+[Show X more replies]
+```
+
+Pressing it triggers:
+
+```
+GET /comments?parent=C&cursor=...&limit=10
+```
+
+---
+
+# 🔹 7. **Why Lazy Loading Matters (Performance)**
+
+* A single post may have **millions** of replies
+* Deep threads can be **200–500 levels long**
+* Nested threads require **branch-based pagination**
+
+Without lazy loading:
+
+❌ Massive SQL queries
+❌ Slow mobile performance
+❌ RLS struggles
+❌ UI overload
+
+With lazy loading:
+
+✔ Fast
+✔ Memory-efficient
+✔ Scroll-friendly
+✔ Twitter-accurate
+
+---
+
+# 🔹 8. **Database Query Patterns**
+
+### Get top-level comments:
+
+```sql
+SELECT *
+FROM posts
+WHERE parent_post_id = :post_id
+ORDER BY created_at
+LIMIT 20 OFFSET :cursor
+```
+
+### Get **first child** for each comment:
+
+```sql
+SELECT *
+FROM posts
+WHERE parent_post_id = :comment_id
+ORDER BY created_at
+LIMIT 1
+```
+
+---
+
+# 🔹 9. **UI Summary (How It Actually Looks)**
+
+### When viewing a post:
+
+```
+[Main Post A]
+
+[Reply B]
+  [Nested C]
+    [Show more replies]
+[Reply D]
+[Reply E]
+  [Show more replies]
+```
+
+### As user scrolls:
+
+* App makes new requests
+* Adds replies to the list (FlatList append)
+* Maintains only visible items in memory
+
+---
+
+# 🔹 10. **How Comments Integrate With Threads (Important)**
+
+⚠ **A comment is also a thread node.**
+⚠ **A thread is just a linear chain of comments.**
+
+### They are the same system:
+
+* Posts with `parent_post_id` create *threads*
+* Threads appear when viewing a *reply inside a reply chain*
+* Comments are just *children in that chain*
+
+**Both live in the same table, same backend, same RLS.**
+**The UI decides if it’s a "reply" view or "thread" view.**
+
+---
+
+# 🔥 Final Summary
+
+### ✔ A comment is just a post with a `parent_post_id`
+
+### ✔ Replies can be infinitely nested
+
+### ✔ Only **top-level** and **first nested reply** are auto-loaded
+
+### ✔ Everything else is lazy-loaded on demand
+
+### ✔ Deep threads show a vertical chain
+
+### ✔ Entire comment system is powered by one table and cursor-based endpoints
+
+##################################################
+
+
+Below is a **concise, example Supabase/Postgres SQL package** that implements:
+
+1. **Reply count maintenance** — increments/decrements `reply_count` on the direct parent when replies are created / deleted / moved / soft-deleted.
+2. **Cascading thread update rules** — handles `parent_post_id` changes (reparenting) safely in a transaction so counts stay correct.
+3. **Thread preview view(s)** — a view (and an optional materialized view) that provides each post with its *first child preview* and direct reply count (fast for timeline/thread preview).
+
+This assumes you already have a `posts` table like earlier in the design. If you used a slightly different schema, adapt column names accordingly.
+
+---
+
+## Assumptions (adjust if your schema differs)
+
+We assume `public.posts` at minimum contains:
+
+* `id uuid PRIMARY KEY`
+* `parent_post_id uuid NULL` — parent post id (reply relationship)
+* `reply_count int NOT NULL DEFAULT 0` — maintained by triggers
+* `is_deleted boolean NOT NULL DEFAULT false`
+* `created_at timestamptz NOT NULL DEFAULT now()`
+* other fields: `user_id`, `content`, `post_type`, etc.
+
+---
+
+## 1) Create helper functions (reply count maintenance & reparenting)
+
+```sql
+-- 1.1: increment reply_count for a parent
+CREATE OR REPLACE FUNCTION public._increment_reply_count(parent_id uuid)
+RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  IF parent_id IS NULL THEN
+    RETURN;
+  END IF;
+  UPDATE public.posts
+    SET reply_count = reply_count + 1,
+        updated_at = now()
+    WHERE id = parent_id;
+END;
+$$;
+
+-- 1.2: decrement reply_count for a parent
+CREATE OR REPLACE FUNCTION public._decrement_reply_count(parent_id uuid)
+RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  IF parent_id IS NULL THEN
+    RETURN;
+  END IF;
+  UPDATE public.posts
+    SET reply_count = GREATEST(reply_count - 1, 0),
+        updated_at = now()
+    WHERE id = parent_id;
+END;
+$$;
+```
+
+---
+
+## 2) Trigger function: handle INSERT / DELETE / UPDATE changes to parent_post_id and soft-delete
+
+This single trigger function handles:
+
+* **INSERT**: if row has `parent_post_id` (reply), increment that parent’s `reply_count`.
+* **DELETE**: if a row being deleted had a `parent_post_id`, decrement the parent’s `reply_count`.
+* **UPDATE**:
+
+  * If `parent_post_id` changed (reparent), decrement old parent and increment new parent.
+  * If `is_deleted` changed from `false` → `true` and you want active counts only, decrement parent (soft-delete scenario).
+  * If `is_deleted` changed from `true` → `false` (undelete), increment parent.
+
+> NOTE: Choose your policy about soft-delete counters. The trigger below **assumes** `reply_count` counts *active (non-deleted) direct replies*. If you prefer historical totals, remove the `is_deleted` parts.
+
+```sql
+CREATE OR REPLACE FUNCTION public.trg_posts_replycount()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  -- INSERT: increment parent reply_count if this is a reply and not deleted
+  IF (TG_OP = 'INSERT') THEN
+    IF (NEW.parent_post_id IS NOT NULL AND COALESCE(NEW.is_deleted, false) = false) THEN
+      PERFORM public._increment_reply_count(NEW.parent_post_id);
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  -- DELETE: decrement parent reply_count if it was a reply and not deleted
+  IF (TG_OP = 'DELETE') THEN
+    IF (OLD.parent_post_id IS NOT NULL AND COALESCE(OLD.is_deleted, false) = false) THEN
+      PERFORM public._decrement_reply_count(OLD.parent_post_id);
+    END IF;
+    RETURN OLD;
+  END IF;
+
+  -- UPDATE: handle parent change (reparent) and soft-delete/un-delete
+  IF (TG_OP = 'UPDATE') THEN
+    -- 1) parent_post_id changed: adjust old and new parents
+    IF (OLD.parent_post_id IS DISTINCT FROM NEW.parent_post_id) THEN
+      -- If OLD was a reply (and active), decrement old parent
+      IF (OLD.parent_post_id IS NOT NULL AND COALESCE(OLD.is_deleted, false) = false) THEN
+        PERFORM public._decrement_reply_count(OLD.parent_post_id);
+      END IF;
+
+      -- If NEW is a reply (and active), increment new parent
+      IF (NEW.parent_post_id IS NOT NULL AND COALESCE(NEW.is_deleted, false) = false) THEN
+        PERFORM public._increment_reply_count(NEW.parent_post_id);
+      END IF;
+    END IF;
+
+    -- 2) soft-delete / undelete: if is_deleted flipped, update parent's count
+    IF (COALESCE(OLD.is_deleted, false) = false AND COALESCE(NEW.is_deleted, false) = true) THEN
+      -- just became deleted -> decrement parent
+      IF (NEW.parent_post_id IS NOT NULL) THEN
+        PERFORM public._decrement_reply_count(NEW.parent_post_id);
+      END IF;
+    ELSIF (COALESCE(OLD.is_deleted, false) = true AND COALESCE(NEW.is_deleted, false) = false) THEN
+      -- undeleted -> increment parent
+      IF (NEW.parent_post_id IS NOT NULL) THEN
+        PERFORM public._increment_reply_count(NEW.parent_post_id);
+      END IF;
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  RETURN NULL; -- should not reach
+END;
+$$;
+```
+
+Attach the trigger:
+
+```sql
+DROP TRIGGER IF EXISTS trg_posts_replycount ON public.posts;
+
+CREATE TRIGGER trg_posts_replycount
+AFTER INSERT OR UPDATE OR DELETE ON public.posts
+FOR EACH ROW
+EXECUTE FUNCTION public.trg_posts_replycount();
+```
+
+---
+
+## 3) Edge-case protections & helpful constraints
+
+* **Prevent double counting on bulk operations**: triggers run per-row inside the transaction; if you bulk insert many replies, counts will be updated per-row but all in the same transaction — that's OK.
+* **Optional uniqueness constraint**: not relevant for replies, but be mindful of constraints on reposts/quotes if used together.
+
+Add index for parent lookup (improves performance):
+
+```sql
+CREATE INDEX IF NOT EXISTS idx_posts_parent_post_id ON public.posts(parent_post_id);
+```
+
+---
+
+## 4) Thread preview view(s)
+
+### A. Lightweight `thread_preview` view
+
+This returns each post along with:
+
+* `direct_reply_count` (same as `reply_count`)
+* `first_child_id`, `first_child_content` (the earliest child by `created_at`) — the “preview child” used in timeline or post card preview.
+
+```sql
+CREATE OR REPLACE VIEW public.thread_preview AS
+SELECT
+  p.*,
+  p.reply_count AS direct_reply_count,
+  c.id AS first_child_id,
+  c.content AS first_child_content,
+  c.created_at AS first_child_created_at,
+  c.user_id AS first_child_user_id
+FROM public.posts p
+LEFT JOIN LATERAL (
+  SELECT id, content, created_at, user_id
+  FROM public.posts
+  WHERE parent_post_id = p.id
+    AND COALESCE(is_deleted, false) = false
+  ORDER BY created_at ASC
+  LIMIT 1
+) c ON true;
+```
+
+* Use this view to drive timeline previews: you can show `first_child_content` as the snippet beneath the post card.
+* The view includes the `direct_reply_count` for display.
+
+### B. Optional materialized view (for high-scale, refresh policy)
+
+If your feed requires heavy joins or complex ranking, create a materialized view and refresh periodically or on demand.
+
+```sql
+CREATE MATERIALIZED VIEW public.thread_preview_mat AS
+SELECT * FROM public.thread_preview;
+
+CREATE INDEX idx_thread_preview_mat_created_at ON public.thread_preview_mat (created_at DESC);
+-- refresh strategy: schedule REFRESH MATERIALIZED VIEW CONCURRENTLY public.thread_preview_mat;
+```
+
+**Note**: `CONCURRENTLY` requires a unique index; adapt as needed.
+
+---
+
+## 5) Use-cases: queries you will run from the app
+
+### Get top-level replies (cursor-based pagination)
+
+```sql
+SELECT * FROM public.posts
+WHERE parent_post_id = '<ROOT_POST_UUID>'
+  AND COALESCE(is_deleted, false) = false
+ORDER BY created_at ASC
+LIMIT 20;
+```
+
+### Get thread preview for a feed (join to profile on server)
+
+```sql
+SELECT tp.*, prof.display_name, prof.username, prof.profile_picture_url
+FROM public.thread_preview tp
+JOIN public.profiles prof ON prof.id = tp.user_id
+ORDER BY tp.created_at DESC
+LIMIT 20;
+```
+
+### Get a post + full immediate children (for detail page initial load)
+
+```sql
+SELECT p.*
+FROM public.posts p
+WHERE p.id = '<POST_ID>';
+
+-- Afterwards fetch direct children (first page)
+SELECT * FROM public.posts
+WHERE parent_post_id = '<POST_ID>'
+  AND COALESCE(is_deleted, false) = false
+ORDER BY created_at ASC
+LIMIT 20;
+```
+
+---
+
+## 6) Notes about soft-delete policy
+
+* The trigger above **assumes `reply_count` tracks active (non-deleted) replies**. When you set `is_deleted = true`, the trigger decrements the parent's `reply_count`.
+* If you prefer `reply_count` to track *historical totals*, remove the parts in the trigger that handle `is_deleted` flips.
+
+---
+
+## 7) Security / RLS considerations
+
+* Keep `SELECT` open for feeds (public).
+* For `INSERT` / `UPDATE` / `DELETE`, restrict via RLS so only the record owner (or admin role) can modify rows.
+* If you rely on RPC functions to insert replies (recommended), you can disable direct `INSERT` to `posts` for `authenticated` and let RPCs run `SECURITY DEFINER` logic. In that case the triggers still fire normally.
+
+Example RLS snippet to allow owners to update:
+
+```sql
+ALTER TABLE public.posts ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "posts_select_public" ON public.posts FOR SELECT USING (true);
+CREATE POLICY "posts_insert_auth" ON public.posts FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "posts_update_owner" ON public.posts FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "posts_delete_owner" ON public.posts FOR DELETE USING (auth.uid() = user_id);
+```
+
+---
+
+## 8) Testing checklist (run after applying SQL)
+
+1. Insert a parent post `P`.
+2. Insert a child reply `R1` with `parent_post_id = P.id` — check `P.reply_count` == 1.
+3. Insert a second reply `R2` — check `P.reply_count` == 2.
+4. Update `R1.parent_post_id` to `R2.id` (reparent) — check `P.reply_count` decremented and `R2.reply_count` incremented.
+5. Soft-delete `R2` (set `is_deleted = true`) — check `R2`'s parent reply_count decremented accordingly.
+6. Delete `R1` — check its parent's `reply_count` decremented.
+
+
+
+

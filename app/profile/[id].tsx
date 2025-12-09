@@ -71,7 +71,7 @@ const fetchUserPosts = async (userId: string, currentUserId?: string): Promise<P
 
         // Map data to Post model
         return postsData.map((p: any) => {
-             // Handle Poll Mapping
+            // Handle Poll Mapping
             let poll = undefined;
             if (p.post_polls && p.post_polls.length > 0) {
                 const rawPoll = p.post_polls[0];
@@ -104,11 +104,14 @@ const fetchUserPosts = async (userId: string, currentUserId?: string): Promise<P
                 like_count: p.post_reactions?.[0]?.count || 0,
                 repost_count: p.post_reposts?.[0]?.count || 0,
                 quote_count: p.post_quotes?.[0]?.count || 0,
-                reply_count: 0,
+                reply_count: p.reply_count || 0, // From database trigger
                 dislike_count: 0,
                 is_deleted: !!p.deleted_at,
                 my_reaction: myReactionsMap.get(p.id) || null,
                 poll: poll,
+                thread_id: p.thread_id,
+                sequence_number: p.sequence_number,
+                is_reply: p.is_reply,
             };
         }) as Post[];
 
@@ -219,15 +222,15 @@ export default function ProfileScreen() {
     const renderPost = useCallback(
         ({ item }: { item: Post }) => (
             <View style={styles.postContainer}>
-                 <PostCard 
-                    post={item} 
+                <PostCard
+                    post={item}
                     currentUser={currentProfile || undefined}
                     onLike={onLike}
                     onDislike={onDislike}
-                 />
+                />
             </View>
         ),
-        [currentProfile, posts] 
+        [currentProfile, posts]
     );
 
     if (loading) return <View style={styles.container}><Text style={{ alignSelf: 'center', marginTop: 50 }}>Loading profile...</Text></View>;

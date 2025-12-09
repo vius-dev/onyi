@@ -124,17 +124,29 @@ const PostCard: React.FC<PostCardProps> = ({
     router.push(`/edit-post?id=${post.id}` as any);
   };
 
+  const handleContinueThread = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    // Navigate to create post with thread context
+    const threadId = post.thread_id || post.id; // Use existing thread_id or start new thread
+    const nextSequence = (post.sequence_number || 0) + 1;
+    router.push(`/create-post?thread_id=${threadId}&sequence=${nextSequence}` as any);
+  };
+
   const handleMenu = () => {
     if (!isOwner) return;
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    const options = [
+      { text: 'Edit Post', onPress: handleEdit },
+      { text: 'Continue Thread', onPress: handleContinueThread },
+      { text: 'Delete Post', onPress: handleDelete, style: 'destructive' as const },
+      { text: 'Cancel', style: 'cancel' as const },
+    ];
+
     Alert.alert(
       'Post Options',
       'Choose an action',
-      [
-        { text: 'Edit Post', onPress: handleEdit },
-        { text: 'Delete Post', onPress: handleDelete, style: 'destructive' },
-        { text: 'Cancel', style: 'cancel' },
-      ],
+      options,
       { cancelable: true }
     );
   };
@@ -167,6 +179,12 @@ const PostCard: React.FC<PostCardProps> = ({
         </TouchableOpacity>
       </View>
       <Text style={styles.timeAgo}>{formatRelativeTime(post.created_at)}</Text>
+      {/* Thread indicator */}
+      {post.thread_id && post.sequence_number && (
+        <View style={styles.threadBadge}>
+          <Text style={styles.threadBadgeText}>{post.sequence_number}/{post.thread_posts?.length || '?'}</Text>
+        </View>
+      )}
       {isOwner && (
         <TouchableOpacity onPress={handleMenu} style={{ padding: 5, marginLeft: 'auto' }}>
           <Ionicons name="ellipsis-horizontal" size={20} color="#657786" />
@@ -174,6 +192,22 @@ const PostCard: React.FC<PostCardProps> = ({
       )}
     </View>
   );
+
+  const renderThreadIndicator = () => {
+    if (!post.thread_id || !post.sequence_number) return null;
+
+    const totalInThread = post.thread_posts?.length || post.sequence_number;
+    const isFirstInThread = post.sequence_number === 1;
+    const isLastInThread = post.sequence_number === totalInThread;
+
+    return (
+      <View style={styles.threadIndicatorContainer}>
+        {!isFirstInThread && <View style={styles.threadLineTop} />}
+        <View style={styles.threadDot} />
+        {!isLastInThread && <View style={styles.threadLineBottom} />}
+      </View>
+    );
+  };
 
 
   const renderMedia = () => {
@@ -312,13 +346,18 @@ const PostCard: React.FC<PostCardProps> = ({
         activeOpacity={isDetailView ? 1 : 0.9}
         style={[styles.container, isDetailView && styles.detailContainer]}
       >
-        {renderHeader()}
-        <Text style={styles.postText}>{post.text}</Text>
-        {renderMedia()}
-        {renderPoll()}
-        {renderQuotedPost()}
-        {renderActions()}
-        {renderThreadChildPreview()}
+        <View style={{ flexDirection: 'row' }}>
+          {renderThreadIndicator()}
+          <View style={{ flex: 1 }}>
+            {renderHeader()}
+            <Text style={styles.postText}>{post.text}</Text>
+            {renderMedia()}
+            {renderPoll()}
+            {renderQuotedPost()}
+            {renderActions()}
+            {renderThreadChildPreview()}
+          </View>
+        </View>
       </TouchableOpacity>
       {renderThreadChildren()}
     </>
@@ -452,6 +491,50 @@ const styles = StyleSheet.create({
     borderLeftWidth: 2,
     borderLeftColor: '#E1E8ED',
     marginLeft: 30, // Align with avatar center
+  },
+  // Thread styles
+  threadBadge: {
+    backgroundColor: '#1DA1F2',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    marginLeft: 8,
+  },
+  threadBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  threadIndicatorContainer: {
+    width: 4,
+    alignItems: 'center',
+    marginRight: 12,
+    position: 'relative',
+  },
+  threadLineTop: {
+    width: 2,
+    flex: 1,
+    backgroundColor: '#1DA1F2',
+    position: 'absolute',
+    top: 0,
+    bottom: '50%',
+  },
+  threadLineBottom: {
+    width: 2,
+    flex: 1,
+    backgroundColor: '#1DA1F2',
+    position: 'absolute',
+    top: '50%',
+    bottom: 0,
+  },
+  threadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#1DA1F2',
+    position: 'absolute',
+    top: '50%',
+    marginTop: -4,
   },
 });
 

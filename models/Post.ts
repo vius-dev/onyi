@@ -8,9 +8,18 @@ export interface Post {
   media?: { type: 'image' | 'video'; url: string }[];
   poll?: Poll;
   quoted_post?: Post;
+
+  // Reply fields
   parent_post_id?: string;
   parent_post?: Post;
   child_posts?: Post[];
+  is_reply?: boolean;
+
+  // Thread fields
+  thread_id?: string | null;
+  sequence_number?: number;
+  thread_posts?: Post[]; // Other posts in the same thread
+
   created_at: string;
   is_deleted: boolean;
   repost_count: number;

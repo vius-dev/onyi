@@ -1,7 +1,7 @@
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/utils/supabase';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import { FlatList, Image, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -16,6 +16,13 @@ interface PostInput {
 export default function CreatePostScreen() {
   const router = useRouter();
   const { user } = useAuth();
+  const params = useLocalSearchParams();
+
+  // Thread continuation params
+  const threadId = Array.isArray(params.thread_id) ? params.thread_id[0] : params.thread_id;
+  const startSequence = params.sequence ? parseInt(Array.isArray(params.sequence) ? params.sequence[0] : params.sequence) : 1;
+  const isThreadContinuation = !!threadId;
+
   const [posts, setPosts] = useState<PostInput[]>([{ key: `post-${Date.now()}`, text: '' }]);
 
   // Derived state
@@ -42,27 +49,27 @@ export default function CreatePostScreen() {
   }, [user]);
 
   const handlePost = async () => {
-    if (!user) return; // Should be handled by AuthGuard
+    if (!user) return;
 
     try {
-      let threadRootId: string | null = null;
-      let parentPostId: string | null = null;
-
       // Filter out empty posts
       const validPosts = posts.filter(p => p.text.trim().length > 0);
       if (validPosts.length === 0) return;
 
       for (let i = 0; i < validPosts.length; i++) {
         const postInput = validPosts[i];
+        const sequenceNum = startSequence + i;
 
         const { data, error } = await supabase
           .from('posts')
           .insert({
             author_id: user.id,
             content: postInput.text,
-            type: i === 0 ? 'normal' : 'reply',
-            parent_post_id: parentPostId,
-            thread_root_id: threadRootId,
+            type: 'normal',
+            thread_id: isThreadContinuation ? threadId : null,
+            sequence_number: isThreadContinuation ? sequenceNum : 1,
+            is_reply: false,
+            parent_post_id: null,
           })
           .select()
           .single() as { data: { id: string } | null; error: any };
@@ -70,18 +77,13 @@ export default function CreatePostScreen() {
         if (error) throw error;
         if (!data) throw new Error("No data returned from insert");
 
-        const newPostId = data.id;
-
-        if (i === 0) {
-          threadRootId = newPostId;
-        } else {
-          await supabase.from('post_threads').insert({
-            parent_post_id: parentPostId,
-            child_post_id: newPostId
-          });
+        // If this is the first post and not a continuation, set it as its own thread_id
+        if (i === 0 && !isThreadContinuation && validPosts.length > 1) {
+          await supabase
+            .from('posts')
+            .update({ thread_id: data.id })
+            .eq('id', data.id);
         }
-
-        parentPostId = newPostId;
       }
 
       console.log('Thread posted successfully');

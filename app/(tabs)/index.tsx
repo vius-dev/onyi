@@ -29,8 +29,9 @@ function buildThreadTree(posts: Post[], parentId: string | null = null): Post[] 
 // -----------------------------------------------------------
 // 🔥 Fetch posts and profiles from Supabase
 // -----------------------------------------------------------
-// -----------------------------------------------------------
-// 🔥 Fetch posts and profiles from Supabase
+// NOTE: We fetch ONLY top-level posts (parent_post_id IS NULL) for the feed.
+// Replies are loaded lazily in the post detail view for performance.
+// The buildThreadTree function exists but is NOT used here.
 // -----------------------------------------------------------
 const fetchPosts = async (currentUserId?: string): Promise<Post[]> => {
   try {
@@ -49,6 +50,7 @@ const fetchPosts = async (currentUserId?: string): Promise<Post[]> => {
           votes:post_poll_votes(user_id, option_id)
         )
       `)
+      .is('parent_post_id', null) // Only top-level posts (no replies)
       .order("created_at", { ascending: false });
 
     if (postsError) throw postsError;
@@ -122,13 +124,41 @@ const fetchPosts = async (currentUserId?: string): Promise<Post[]> => {
         like_count: p.post_reactions?.[0]?.count || 0,
         repost_count: p.post_reposts?.[0]?.count || 0,
         quote_count: p.post_quotes?.[0]?.count || 0,
-        reply_count: 0,
+        reply_count: p.reply_count || 0, // From database trigger
         dislike_count: 0,
         is_deleted: !!p.deleted_at,
         my_reaction: myReactionsMap.get(p.id) || null,
         poll: poll,
+        thread_id: p.thread_id,
+        sequence_number: p.sequence_number,
+        is_reply: p.is_reply,
       };
     });
+
+    // 4. Fetch thread_posts for posts that are part of a thread
+    const threadIds = new Set(posts.map(p => p.thread_id).filter(Boolean));
+    if (threadIds.size > 0) {
+      const { data: threadPosts } = await supabase
+        .from("posts")
+        .select("id, thread_id, sequence_number")
+        .in("thread_id", Array.from(threadIds));
+
+      // Group by thread_id
+      const threadMap = new Map<string, any[]>();
+      threadPosts?.forEach(tp => {
+        if (!threadMap.has(tp.thread_id)) {
+          threadMap.set(tp.thread_id, []);
+        }
+        threadMap.get(tp.thread_id)!.push(tp);
+      });
+
+      // Attach thread_posts to each post
+      posts.forEach(post => {
+        if (post.thread_id) {
+          post.thread_posts = threadMap.get(post.thread_id) || [];
+        }
+      });
+    }
 
     return posts;
 
