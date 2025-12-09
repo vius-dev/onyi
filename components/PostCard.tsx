@@ -359,7 +359,7 @@ const PostCard: React.FC<PostCardProps> = ({
             {renderPoll()}
             {renderQuotedPost()}
             {renderActions()}
-            {renderThreadChildPreview()}
+            {/* Preview removed - we show full nested children now */}
           </View>
         </View>
       </TouchableOpacity>

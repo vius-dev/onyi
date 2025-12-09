@@ -31,6 +31,18 @@ function buildThreadTree(posts: Post[], parentId: string | null = null): Post[] 
     console.log('🔍 buildThreadTree - Posts with parent_post_id:', posts.filter(p => p.parent_post_id).length);
     console.log('🔍 buildThreadTree - Top-level posts:', result.length);
     console.log('🔍 buildThreadTree - First post children:', result[0]?.child_posts?.length || 0);
+
+    // Show which posts are top-level
+    console.log('🔍 Top-level post IDs:', result.map(p => p.id.substring(0, 8)));
+
+    // Show posts with parents
+    const postsWithParents = posts.filter(p => p.parent_post_id);
+    if (postsWithParents.length > 0) {
+      console.log('🔍 Posts with parents:', postsWithParents.map(p => ({
+        id: p.id.substring(0, 8),
+        parent: p.parent_post_id?.substring(0, 8)
+      })));
+    }
   }
 
   return result;
