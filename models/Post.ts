@@ -19,4 +19,5 @@ export interface Post {
   dislike_count: number;
   is_edited?: boolean;
   reply_count?: number;
+  my_reaction?: 'like' | 'dislike' | null;
 }

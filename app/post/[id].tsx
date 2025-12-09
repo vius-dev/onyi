@@ -1,21 +1,31 @@
 import PostCard from '@/components/PostCard';
+import { useAuth } from '@/contexts/AuthContext';
 import { Post } from '@/models/Post';
 import { User } from '@/models/User';
+import { supabase } from '@/utils/supabase';
 import { useLocalSearchParams } from 'expo-router';
+import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
-// Mock current user for demonstration
-const currentUser: User = {
-  id: "1",
-  username: "current_user",
-  display_name: "Current User",
-  profile_picture_url: "https://randomuser.me/api/portraits/men/1.jpg",
-  email: "current_user@example.com",
-  created_at: new Date().toISOString(),
-};
+
 
 export default function PostDetailScreen() {
   const { post: postString } = useLocalSearchParams();
+  const { user: authUser } = useAuth();
+  const [currentProfile, setCurrentProfile] = useState<User | null>(null);
+
+  useEffect(() => {
+    if (authUser) {
+      supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", authUser.id)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (data) setCurrentProfile(data as User);
+        });
+    }
+  }, [authUser]);
 
   let post: Post;
   try {
@@ -40,7 +50,7 @@ export default function PostDetailScreen() {
     <ScrollView style={styles.container}>
       <PostCard
         post={post}
-        currentUser={currentUser}
+        currentUser={currentProfile || undefined}
         onLike={onLike}
         onDislike={onDislike}
         onRepost={onRepost}

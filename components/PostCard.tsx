@@ -37,8 +37,9 @@ const PostCard: React.FC<PostCardProps> = ({
   // -----------------------------------------------------------
   // State
   // -----------------------------------------------------------
-  const [liked, setLiked] = useState(false);
-  const [disliked, setDisliked] = useState(false);
+  // Derived state from props
+  const liked = post.my_reaction === 'like';
+  const disliked = post.my_reaction === 'dislike';
   const [reposted, setReposted] = useState(false);
 
   // Image viewer state
@@ -78,15 +79,11 @@ const PostCard: React.FC<PostCardProps> = ({
   // Action Handlers
   // -----------------------------------------------------------
   const handleLike = () => {
-    setLiked(!liked);
-    if (disliked) setDisliked(false);
     onLike(post.id);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
   const handleDislike = () => {
-    setDisliked(!disliked);
-    if (liked) setLiked(false);
     onDislike(post.id);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
@@ -119,6 +116,27 @@ const PostCard: React.FC<PostCardProps> = ({
       ],
       { cancelable: true }
     );
+
+  };
+
+  const handleEdit = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    router.push(`/edit-post?id=${post.id}` as any);
+  };
+
+  const handleMenu = () => {
+    if (!isOwner) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    Alert.alert(
+      'Post Options',
+      'Choose an action',
+      [
+        { text: 'Edit Post', onPress: handleEdit },
+        { text: 'Delete Post', onPress: handleDelete, style: 'destructive' },
+        { text: 'Cancel', style: 'cancel' },
+      ],
+      { cancelable: true }
+    );
   };
 
   const handleVote = (pollId: string, optionIds: string[]) => {
@@ -143,14 +161,20 @@ const PostCard: React.FC<PostCardProps> = ({
         )}
       </TouchableOpacity>
       <View style={styles.userInfo}>
-        <TouchableOpacity onPress={goToProfile}>
+        <TouchableOpacity onPress={goToProfile} style={{ flexDirection: 'row', alignItems: 'center' }}>
           <Text style={styles.displayName}>{post.user?.display_name || 'Unknown User'}</Text>
-          <Text style={styles.username}>@{post.user?.username}</Text>
+          <Text style={[styles.username, { marginLeft: 5 }]}>@{post.user?.username}</Text>
         </TouchableOpacity>
       </View>
       <Text style={styles.timeAgo}>{formatRelativeTime(post.created_at)}</Text>
+      {isOwner && (
+        <TouchableOpacity onPress={handleMenu} style={{ padding: 5, marginLeft: 'auto' }}>
+          <Ionicons name="ellipsis-horizontal" size={20} color="#657786" />
+        </TouchableOpacity>
+      )}
     </View>
   );
+
 
   const renderMedia = () => {
     if (!post.media || post.media.length === 0) return null;
@@ -227,11 +251,6 @@ const PostCard: React.FC<PostCardProps> = ({
       <TouchableOpacity style={styles.actionButton} onPress={handleQuote}>
         <Ionicons name="share-outline" size={20} color="#657786" />
       </TouchableOpacity>
-      {isOwner && (
-        <TouchableOpacity style={styles.actionButton} onPress={handleDelete}>
-          <Ionicons name="trash-outline" size={20} color="#E53935" />
-        </TouchableOpacity>
-      )}
     </View>
   );
 
@@ -328,8 +347,8 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 10,
+    alignItems: 'center',
+    marginBottom: 5,
   },
   avatarContainer: {
     marginRight: 12,

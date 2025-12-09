@@ -2569,8 +2569,762 @@ JOIN posts p ON p.id = t.child_post_id;
 
 
 
+# 🔐 **AUTHENTICATION SYSTEM — CLEAN VERSION**
+
+This is the Auth system where **anyone can register**
+
+Below is the complete, final behavior for the MVP.
+
+---
+
+# 1. **Full color splash screen + AUTH CHECK**
+
+```
+Splash → AuthCheck →
+  • If valid session → HomeFeed
+  • If no session → Login
+```
+
+### Behavior:
+
+* App loads splash while checking stored Supabase session.
+* If session exists and is valid → user goes to HomeFeed.
+* If expired/invalid/no session → user goes to Login screen.
+
+---
+
+# 2. **LOGIN FLOW**
+
+### UI Elements:
+
+* Email / Username Input
+* Password Input
+* **Log In** button
+* “Forgot password?” link
+* “Don’t have an account? Sign up” link
+
+### Behavior:
+
+* Press “Log In”:
+
+  * Validate fields (required).
+  * Call Supabase `signInWithPassword()`.
+  * On success → store session → navigate to HomeFeed.
+  * On failure → show appropriate error:
+
+    * “Incorrect email or password.”
+    * “Account not found.”
+    * “Network error.”
+
+### UX:
+
+* Button disables during auth call.
+* Inline or toast-style errors.
+* Keyboard-aware view.
+
+---
+
+# 3. **REGISTRATION FLOW **
+
+
+### The Registration Flow:
+
+```
+Registration Screen →
+  Email + Password + Name →
+    Create Account →
+      Profile Setup →
+         HomeFeed
+```
+
+---
+
+## 3.1 **Registration Screen UI**
+
+```
+Full Name Input
+Email Input
+Password Input
+Confirm Password
+[Create Account]
+```
+
+### Validation:
+
+* Full name required
+* Email format
+* Password length ≥ 8
+* Passwords must match
+
+### Behavior:
+
+* Supabase: `auth.signUp({ email, password })`
+* On success:
+
+  * Insert row into `profiles` table:
+
+    ```json
+    {
+      "id": auth.user_id,
+      "name": full_name,
+      "username": auto-generated (USER CAN CHANGE IT LATER),
+      "avatar_url": default,
+      "created_at": timestamp
+    }
+    ```
+* After that:
+
+  * Navigate to **Optional Profile Setup** screen.
+
+---
+
+## 3.2 **Optional Profile Setup**
+
+Allows user to personalize their account:
+
+* Upload avatar
+* Add bio
+* Add location (optional)
+
+**This step is skippable.**
+If skipped → go to HomeFeed.
+
+---
+
+# 4. **PASSWORD RESET FLOW**
+
+From Login → “Forgot password?”
+
+Flow:
+
+1. User enters email.
+2. Supabase sends password reset link.
+3. User opens link in browser and resets password.
+4. Deep link returns to app.
+5. Show toast: “Password updated successfully.”
+6. Show Login screen.
+
+Uses Supabase’s built-in reset system.
+
+---
+
+# 5. **SESSION MANAGEMENT**
+
+Automatic and persistent.
+
+### App maintains:
+
+* Access token
+* Refresh token
+* Expiry timestamp
+
+### Silent Refresh:
+
+* Supabase refreshes token automatically.
+* If refresh fails → force logout → show Login.
+
+### Logout:
+
+* Clear session + local storage.
+* Navigate to Login.
+
+---
+
+# 6. **RLS (ROW-LEVEL SECURITY)**
+
+### `profiles`
+
+* Select: anyone can read (public data).
+* Insert: authenticated.
+* Update: only user updates their own row.
+* Delete: nobody.
+
+### `tweets`
+
+* Insert: authenticated user.
+* Select: public.
+* Update: only owner.
+* Delete: only owner (and admin if later).
+
+### `sessions`
+
+* Handled by Supabase internally.
+---
+
+# 7. **ACCOUNT VERIFICATION**
+
+Optional email verification.
+
+Recommended UI behavior:
+
+* If user is unverified:
+
+  * Show small banner on profile settings:
+    “Verify your email to secure your account.”
+  * Button: “Resend verification email.”
+
+But registration does **not** require verification to log in.
+
+---
+
+# 8. **UX RULES**
+
+### Loading:
+
+* Buttons disabled with spinners during network calls.
+
+### Error Handling:
+
+* Clear, friendly messages:
+
+  * "Email already exists."
+  * "Network connection lost."
+  * "Invalid email format."
+
+### Animations:
+
+* Smooth transition:
+
+  * Login → fade → HomeFeed
+  * Registration → slide → setup profile
+
+### Keyboard-aware Input:
+
+* Inputs move up when keyboard is open.
+* Continue button stays visible.
+
+---
+
+# 9. **NAVIGATION RULES (FINAL)**
+
+| Action                  | Result              |
+| ----------------------- | ------------------- |
+| App launch              | Splash → AuthCheck  |
+| Session valid           | HomeFeed            |
+| No session / expired    | Login               |
+| Press Sign Up           | Registration        |
+| Press Forgot Password   | Password Reset Flow |
+| Successful registration | Setup Profile       |
+| Skip profile setup      | HomeFeed            |
+| Logout                  | Login               |
+
+---
+
+# 10. **DATA MODELS**
+
+### Supabase Auth User
+
+* email
+* hashed password
+* last_sign_in_at
+* identity providers
+
+### `profiles` table
+
+```json
+{
+  "id": "uuid-from-auth",
+  "name": "John Doe",
+  "username": "johndoe_12",
+  "avatar_url": "default_avatar.png",
+  "bio": "",
+  "location": "",
+  "created_at": "timestamp"
+}
+```
+
+### `tweets` table
+
+```json
+{
+  "id": "uuid",
+  "author_id": "uuid",
+  "text": "Hello world!",
+  "media": [],
+  "created_at": "timestamp"
+}
+```
+
+---
+
+# ✔ The Authentication System Is Now:
+
+
+* Simple + Twitter-like
+* Secure
+* Fast
+* Fully compatible with Expo & Supabase
+* Fits perfectly into the existing architecture
 
 
 
 
 
+
+Below is a complete, production-ready backend design we can can mirror as an example into Supabase (Postgres) to support **repost** and **quote** behavior for the app. It includes:
+
+* unified `posts` table design (supports original / repost / quote)
+* DDL (CREATE TABLE) with indexes
+* trigger functions to maintain counters (`repost_count`, `quote_count`)
+* RPC functions (secure, server-side) to **create a repost** and **create a quote** safely (prevents duplicates, enforces business rules)
+* recommended Row-Level Security (RLS) policies
+* helpful views/aggregates and API endpoint suggestions
+* notes about concurrency, migrations, and how to use it from the app
+
+Everything below is self-contained SQL + explanation. We can read the SQL to understand the design before implementing it into Supabase SQL editor (or adapt to your migration system).
+
+---
+
+## Design summary (quick)
+
+* **Single `posts` table** with `post_type` enum: `'original' | 'repost' | 'quote'`.
+* Repost = new row of `post_type='repost'` with `repost_of` pointing to original post id (no text).
+* Quote = new row of `post_type='quote'` with `quoted_post_id` pointing to original post id and `content` containing the user's comment.
+* Use server-side RPCs `rpc_repost_create(user_id, original_post_id)` and `rpc_quote_create(user_id, original_post_id, content)` to encapsulate logic and enforce rules.
+* Maintain counters on the original post via triggers in the same transaction for consistency.
+* RLS policies restrict who can insert/update/delete (caller must match `auth.uid`).
+
+---
+
+## 1) DDL: types & tables
+
+```sql
+-- 1.1: create post_type enum
+CREATE TYPE post_type_enum AS ENUM ('original','repost','quote');
+
+-- 1.2: posts table (single source of truth)
+CREATE TABLE public.posts (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL, -- references auth.users / profiles.id
+  post_type post_type_enum NOT NULL DEFAULT 'original',
+  content text, -- only for original or quote posts (repost has null)
+  media jsonb DEFAULT '[]'::jsonb, -- array of media objects {url,type}
+  parent_post_id uuid, -- for threads (reply chaining)
+  repost_of uuid,     -- for repost rows -> original post id
+  quoted_post_id uuid, -- for quote rows -> original post id
+  is_deleted boolean NOT NULL DEFAULT false,
+  like_count int NOT NULL DEFAULT 0,
+  dislike_count int NOT NULL DEFAULT 0,
+  repost_count int NOT NULL DEFAULT 0,    -- maintained by triggers
+  quote_count int NOT NULL DEFAULT 0,     -- maintained by triggers
+  reply_count int NOT NULL DEFAULT 0,     -- maintained elsewhere (insert reply)
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- 1.3: foreign keys (optional if using auth.public.users vs profiles)
+-- If you have profiles.id (uuid), reference that:
+ALTER TABLE public.posts
+  ADD CONSTRAINT fk_posts_user
+  FOREIGN KEY (user_id) REFERENCES public.profiles(id) ON DELETE CASCADE;
+
+ALTER TABLE public.posts
+  ADD CONSTRAINT fk_posts_repost_of
+  FOREIGN KEY (repost_of) REFERENCES public.posts(id) ON DELETE CASCADE;
+
+ALTER TABLE public.posts
+  ADD CONSTRAINT fk_posts_quoted_post
+  FOREIGN KEY (quoted_post_id) REFERENCES public.posts(id) ON DELETE CASCADE;
+
+ALTER TABLE public.posts
+  ADD CONSTRAINT fk_posts_parent
+  FOREIGN KEY (parent_post_id) REFERENCES public.posts(id) ON DELETE CASCADE;
+
+-- 1.4: helpful indexes
+CREATE INDEX idx_posts_user_id_created_at ON public.posts (user_id, created_at DESC);
+CREATE INDEX idx_posts_created_at ON public.posts (created_at DESC);
+CREATE INDEX idx_posts_repost_of ON public.posts (repost_of);
+CREATE INDEX idx_posts_quoted_post ON public.posts (quoted_post_id);
+```
+
+---
+
+## 2) Trigger functions to maintain counters
+
+We keep `repost_count` and `quote_count` on the original post so feed queries are fast. All increments/decrements happen inside the same transaction as creating/removing the repost/quote.
+
+```sql
+-- 2.1: function to increment repost_count on original when a repost row is inserted
+CREATE OR REPLACE FUNCTION public.on_repost_insert()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  -- only act when the new row is a repost and has repost_of set
+  IF (NEW.post_type = 'repost' AND NEW.repost_of IS NOT NULL) THEN
+    UPDATE public.posts
+      SET repost_count = repost_count + 1,
+          updated_at = now()
+      WHERE id = NEW.repost_of;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+-- 2.2: function to decrement repost_count when deleting a repost (soft delete or hard delete)
+CREATE OR REPLACE FUNCTION public.on_repost_delete()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF (OLD.post_type = 'repost' AND OLD.repost_of IS NOT NULL) THEN
+    UPDATE public.posts
+      SET repost_count = GREATEST(repost_count - 1, 0),
+          updated_at = now()
+      WHERE id = OLD.repost_of;
+  END IF;
+  RETURN OLD;
+END;
+$$;
+
+-- 2.3: function to increment quote_count on original when a quote row is inserted
+CREATE OR REPLACE FUNCTION public.on_quote_insert()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF (NEW.post_type = 'quote' AND NEW.quoted_post_id IS NOT NULL) THEN
+    UPDATE public.posts
+      SET quote_count = quote_count + 1,
+          updated_at = now()
+      WHERE id = NEW.quoted_post_id;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+-- 2.4: function to decrement quote_count on delete
+CREATE OR REPLACE FUNCTION public.on_quote_delete()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  IF (OLD.post_type = 'quote' AND OLD.quoted_post_id IS NOT NULL) THEN
+    UPDATE public.posts
+      SET quote_count = GREATEST(quote_count - 1, 0),
+          updated_at = now()
+      WHERE id = OLD.quoted_post_id;
+  END IF;
+  RETURN OLD;
+END;
+$$;
+
+-- 2.5: attach triggers to posts
+CREATE TRIGGER trg_on_repost_insert
+AFTER INSERT ON public.posts
+FOR EACH ROW
+WHEN (NEW.post_type = 'repost')
+EXECUTE FUNCTION public.on_repost_insert();
+
+CREATE TRIGGER trg_on_repost_delete
+AFTER DELETE ON public.posts
+FOR EACH ROW
+WHEN (OLD.post_type = 'repost')
+EXECUTE FUNCTION public.on_repost_delete();
+
+CREATE TRIGGER trg_on_quote_insert
+AFTER INSERT ON public.posts
+FOR EACH ROW
+WHEN (NEW.post_type = 'quote')
+EXECUTE FUNCTION public.on_quote_insert();
+
+CREATE TRIGGER trg_on_quote_delete
+AFTER DELETE ON public.posts
+FOR EACH ROW
+WHEN (OLD.post_type = 'quote')
+EXECUTE FUNCTION public.on_quote_delete();
+```
+
+**Notes**
+
+* If you soft-delete (set `is_deleted = true`), run a different trigger on `UPDATE` that checks `OLD.is_deleted = false AND NEW.is_deleted = true` and decrements counts accordingly (or avoid decrement and instead keep counts representing historical totals — choose your policy).
+* Triggers run in same transaction as INSERT/DELETE — ensures counters are consistent.
+
+---
+
+## 3) RPC functions (server-side, security-definer) — create repost & quote
+
+Using RPC ensures clients cannot create invalid reposts/quotes that would corrupt counts. Make the RPC run as a trusted function (SECURITY DEFINER) that verifies the caller identity.
+
+> **Important:** Supabase exposes `auth.uid()` in Postgres. RPC will check `auth.uid()` equals the `user_id` param (or omit `user_id` param and use `auth.uid()` server-side).
+
+```sql
+-- 3.1: function to create a repost (prevents duplicate repost by same user)
+CREATE OR REPLACE FUNCTION public.rpc_repost_create(original_post uuid)
+RETURNS TABLE (new_post_id uuid) LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  actor uuid := auth.uid();
+  existing uuid;
+BEGIN
+  IF actor IS NULL THEN
+    RAISE EXCEPTION 'unauthenticated';
+  END IF;
+
+  -- ensure original exists and is not deleted
+  PERFORM 1 FROM public.posts WHERE id = original_post AND is_deleted = false;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Original post not found or deleted';
+  END IF;
+
+  -- prevent reposting your own post (optional)
+  IF EXISTS (SELECT 1 FROM public.posts p WHERE p.id = original_post AND p.user_id = actor) THEN
+    RAISE EXCEPTION 'Cannot repost your own post';
+  END IF;
+
+  -- prevent duplicate reposts by same user (unique constraint logic)
+  SELECT id INTO existing
+  FROM public.posts
+  WHERE post_type = 'repost' AND repost_of = original_post AND user_id = actor
+  LIMIT 1;
+
+  IF existing IS NOT NULL THEN
+    -- idempotent: return existing repost id
+    new_post_id := existing;
+    RETURN NEXT;
+    RETURN;
+  END IF;
+
+  -- create new repost row (this will fire the on_repost_insert trigger which increments count)
+  INSERT INTO public.posts (user_id, post_type, repost_of)
+  VALUES (actor, 'repost', original_post)
+  RETURNING id INTO new_post_id;
+
+  RETURN NEXT;
+END;
+$$;
+
+-- Grant execute to authenticated role (if using supabase default)
+GRANT EXECUTE ON FUNCTION public.rpc_repost_create(uuid) TO authenticated;
+
+-- 3.2: function to create a quote
+CREATE OR REPLACE FUNCTION public.rpc_quote_create(original_post uuid, content text)
+RETURNS TABLE (new_post_id uuid) LANGUAGE plpgsql SECURITY DEFINER AS $$
+DECLARE
+  actor uuid := auth.uid();
+  existing uuid;
+BEGIN
+  IF actor IS NULL THEN
+    RAISE EXCEPTION 'unauthenticated';
+  END IF;
+
+  PERFORM 1 FROM public.posts WHERE id = original_post AND is_deleted = false;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Original post not found or deleted';
+  END IF;
+
+  -- create new quote post referencing original
+  INSERT INTO public.posts (user_id, post_type, content, quoted_post_id)
+  VALUES (actor, 'quote', content, original_post)
+  RETURNING id INTO new_post_id;
+
+  RETURN NEXT;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.rpc_quote_create(uuid, text) TO authenticated;
+```
+
+**Notes**
+
+* `SECURITY DEFINER` functions should be owned by a superuser role or a dedicated db role with minimal privileges; carefully audit.
+* In Supabase, `auth.uid()` works inside Postgres if the request carries a valid JWT.
+
+---
+
+## 4) RLS policies (high-level suggestions)
+
+Enable Row-Level Security:
+
+```sql
+ALTER TABLE public.posts ENABLE ROW LEVEL SECURITY;
+```
+
+Suggested policies:
+
+```sql
+-- 4.1: allow everyone to SELECT posts (public timeline)
+CREATE POLICY "posts_select_public" ON public.posts
+FOR SELECT
+USING (true);
+
+-- 4.2: allow authenticated users to INSERT their own posts only via RPC or direct insert if uid matches
+CREATE POLICY "posts_insert_if_auth" ON public.posts
+FOR INSERT
+WITH CHECK (auth.uid() IS NOT NULL AND auth.uid() = user_id);
+
+-- 4.3: allow owner to UPDATE their posts (edit content)
+CREATE POLICY "posts_update_owner" ON public.posts
+FOR UPDATE
+USING (auth.uid() = user_id)
+WITH CHECK (auth.uid() = user_id);
+
+-- 4.4: allow owner to DELETE only their own posts
+CREATE POLICY "posts_delete_owner" ON public.posts
+FOR DELETE
+USING (auth.uid() = user_id);
+
+-- Optionally restrict inserting reposts/quotes via RPC only by blocking direct inserts of post_type = 'repost'/'quote'
+CREATE POLICY "no_direct_repost_quote" ON public.posts
+FOR INSERT
+USING (true)
+WITH CHECK (
+  (post_type NOT IN ('repost','quote')) OR
+  -- if it's a repost/quote ensure it was created via rpc by checking a flag or use function-based approach
+  (auth.uid() IS NOT NULL AND auth.uid() = user_id)
+);
+```
+
+**Recommendation:** Prefer requiring clients to call the RPC (`rpc_repost_create` / `rpc_quote_create`) rather than allowing direct inserts that could bypass duplication checks. You can enforce this by:
+
+* Not granting insert privileges on `posts` to the `authenticated` role, and only allowing the RPC to perform inserts (RPC runs as security definer).
+* Or keep inserts allowed but rely on triggers/constraints.
+
+---
+
+## 5) Unique constraint / duplicate prevention alternative
+
+If you want a DB-enforced uniqueness for reposts (prevent the same user reposting the same post twice), add a partial unique index:
+
+```sql
+CREATE UNIQUE INDEX ux_repost_user_post ON public.posts (user_id, repost_of)
+WHERE post_type = 'repost';
+```
+
+This will cause duplicate insert attempt to fail with unique_violation; handle in rpc to return existing id (or catch error).
+
+---
+
+## 6) Helpful views & materialized views
+
+To make feed queries fast, create a view that expands reposts to show original post fields (simplifies client):
+
+```sql
+CREATE VIEW public.posts_feed AS
+SELECT
+  p.id,
+  p.user_id,
+  p.post_type,
+  p.content,
+  p.media,
+  p.parent_post_id,
+  p.repost_of,
+  p.quoted_post_id,
+  p.is_deleted,
+  p.like_count,
+  p.dislike_count,
+  p.repost_count,
+  p.quote_count,
+  p.reply_count,
+  p.created_at,
+  p.updated_at,
+  -- if this is a repost, join the original post for quick client usage
+  orig.id as orig_id,
+  orig.user_id as orig_user_id,
+  orig.content as orig_content,
+  orig.media as orig_media,
+  orig.like_count as orig_like_count,
+  orig.repost_count as orig_repost_count
+FROM public.posts p
+LEFT JOIN public.posts orig ON (p.post_type = 'repost' AND p.repost_of = orig.id);
+```
+
+A materialized view can be created for expensive joins and refreshed periodically:
+
+```sql
+CREATE MATERIALIZED VIEW public.posts_feed_mat AS
+SELECT * FROM public.posts_feed;
+CREATE INDEX idx_posts_feed_mat_created_at ON public.posts_feed_mat (created_at DESC);
+```
+
+---
+
+## 7) Sample API endpoints (Hono / Express / Hapi patterns)
+
+* `POST /api/v1/posts/repost`
+
+  * Body: `{ original_post_id: "<uuid>" }`
+  * Server calls `rpc_repost_create(original_post_id)` and returns the new post id and resulting post object.
+
+* `POST /api/v1/posts/quote`
+
+  * Body: `{ original_post_id: "<uuid>", content: "..." }`
+  * Server calls `rpc_quote_create(original_post_id, content)` then returns the created post row.
+
+* `GET /api/v1/posts/:id`
+
+  * Returns post object; for reposts, include joined original fields.
+
+* `GET /api/v1/posts/feed?cursor=...`
+
+  * Returns feed; the server can use `posts_feed` view or materialized view.
+
+**Example pseudo-Hono handler for repost:**
+
+```ts
+// POST /api/v1/posts/repost
+app.post('/api/v1/posts/repost', async (c) => {
+  const { original_post_id } = await c.req.json();
+  const res = await supabase.rpc('rpc_repost_create', original_post_id);
+  if (res.error) return c.json({ error: res.error.message }, 400);
+  return c.json({ repost_id: res.data?.[0]?.new_post_id });
+});
+```
+
+---
+
+## 8) Concurrency & edge cases notes
+
+* Use transactions: the RPC functions already run atomically — creation + triggers updating counters happen together.
+* For duplicate handling:
+
+  * Prefer `SELECT ... FOR UPDATE` semantics inside rpc OR use a unique index and handle `unique_violation` errors gracefully (return existing id).
+* If you soft-delete posts (`is_deleted = true`) you must decide whether `repost_count` and `quote_count` reflect **active** counts or **historical** counts. If active counts only, decrement on marking `is_deleted = true`. If historical, keep counts as-is.
+* Consider materialized view refresh cadence for large systems.
+
+---
+
+## 9) Example client flow (React Native)
+
+**To repost:**
+
+1. Call `POST /api/v1/posts/repost` or `supabase.rpc('rpc_repost_create', original_post_id)`.
+2. If success, optimistic UI sets `repost_count += 1` and highlights repost icon.
+3. If RPC returned existing id, don't double increment (treat as idempotent).
+
+**To quote:**
+
+1. Open composer with quoted post embedded.
+2. Submit to `POST /api/v1/posts/quote` (or `supabase.rpc('rpc_quote_create', original_post_id, content)`).
+3. Backend creates new `post_type='quote'` and trigger increments `quote_count` on original.
+
+---
+
+## 10) Migration & deployment order
+
+1. Create `post_type_enum` type.
+2. Create `posts` table.
+3. Create triggers & trigger functions.
+4. Create RPC functions and grant EXECUTE to `authenticated`.
+5. Create indexes.
+6. Implement RLS policies (enable RLS).
+7. Deploy API endpoints.
+
+---
+
+## 11) Optional improvements (future)
+
+* Add `post_counts` table and maintain via triggers if you want atomic counters separate from `posts` row.
+* Use Redis caching for very hot posts instead of frequent DB writes.
+* Add auditing table `post_actions` to keep event history (who reposted/quoted when).
+* Create materialized view `posts_with_user_data` joining `profiles` to return feed-ready objects.
+
+---
+
+## Closing notes
+
+This design:
+
+* Keeps reposts and quotes as first-class posts for timeline behavior.
+* Guarantees counters are consistent via triggers inside the same transaction.
+* Uses RPCs to enforce rules (no duplicate reposts, no repost of your own post).
+* Provides safe RLS guidance for Supabase.
+
+If you want, I can:
+
+* Generate the **exact SQL script** ready to read to Supabase (I can include soft-delete handling and RLS fully).
+* Produce the Hono route handlers (full TypeScript) for the repost & quote endpoints.
+* Write client-side examples (React Native + supabase-js) showing how to call the RPCs with optimistic UI.
+
+Which one do you want next?

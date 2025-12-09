@@ -1,23 +1,10 @@
-
-import { User } from '@/models/User';
+import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/utils/supabase';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { FlatList, Image, KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-
-// Hardcoded test user ID until auth is fully implemented
-const TEST_USER_ID = 'f358fafe-e96e-4731-9360-03be395efded';
-
-// Mock current user data - in real app, fetch this from Supabase using TEST_USER_ID
-const currentUser: User = {
-  id: TEST_USER_ID,
-  username: 'test_user',
-  display_name: 'Test User',
-  profile_picture_url: 'https://randomuser.me/api/portraits/men/1.jpg',
-  email: 'test@example.com',
-  created_at: new Date().toISOString(),
-};
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 const MAX_CHARACTERS = 280;
 
@@ -26,15 +13,37 @@ interface PostInput {
   text: string;
 }
 
-export default function NewPostScreen() {
+export default function CreatePostScreen() {
   const router = useRouter();
+  const { user } = useAuth();
   const [posts, setPosts] = useState<PostInput[]>([{ key: `post-${Date.now()}`, text: '' }]);
 
+  // Derived state
   const totalCharCount = useMemo(() => posts.reduce((sum, p) => sum + p.text.length, 0), [posts]);
   const hasExceededLimit = useMemo(() => posts.some(p => p.text.length > MAX_CHARACTERS), [posts]);
   const isPostDisabled = totalCharCount === 0 || hasExceededLimit;
 
+  // Profile pic state
+  const [profilePic, setProfilePic] = useState('https://randomuser.me/api/portraits/lego/1.jpg');
+
+  useEffect(() => {
+    if (user) {
+      supabase
+        .from('profiles')
+        .select('profile_picture_url')
+        .eq('id', user.id)
+        .single()
+        .then(({ data }) => {
+          if (data?.profile_picture_url) {
+            setProfilePic(data.profile_picture_url);
+          }
+        });
+    }
+  }, [user]);
+
   const handlePost = async () => {
+    if (!user) return; // Should be handled by AuthGuard
+
     try {
       let threadRootId: string | null = null;
       let parentPostId: string | null = null;
@@ -49,9 +58,9 @@ export default function NewPostScreen() {
         const { data, error } = await supabase
           .from('posts')
           .insert({
-            author_id: TEST_USER_ID,
+            author_id: user.id,
             content: postInput.text,
-            type: i === 0 ? 'normal' : 'reply', // First is normal (or reply if replying to another), subsequent are thread replies
+            type: i === 0 ? 'normal' : 'reply',
             parent_post_id: parentPostId,
             thread_root_id: threadRootId,
           })
@@ -63,18 +72,15 @@ export default function NewPostScreen() {
 
         const newPostId = data.id;
 
-        // If this is the first post, it might be the root (unless we are replying to *another* thread, which isn't handled here yet)
         if (i === 0) {
           threadRootId = newPostId;
         } else {
-          // For subsequent posts in thread, insert into post_threads
           await supabase.from('post_threads').insert({
             parent_post_id: parentPostId,
             child_post_id: newPostId
           });
         }
 
-        // The current post becomes parent for the next
         parentPostId = newPostId;
       }
 
@@ -104,7 +110,7 @@ export default function NewPostScreen() {
     return (
       <View>
         <View style={styles.composerContainer}>
-          <Image source={{ uri: currentUser.profile_picture_url }} style={styles.profilePicture} />
+          <Image source={{ uri: profilePic }} style={styles.profilePicture} />
           <View style={styles.inputContainer}>
             <TextInput
               style={styles.textInput}
@@ -113,7 +119,7 @@ export default function NewPostScreen() {
               placeholderTextColor="#999"
               value={item.text}
               onChangeText={(text) => updatePostText(index, text)}
-              maxLength={MAX_CHARACTERS + 20} // Allow over-typing to show error
+              maxLength={MAX_CHARACTERS + 20}
               accessibilityLabel={`Compose new post, part ${index + 1} of ${posts.length}`}
             />
           </View>
@@ -136,47 +142,49 @@ export default function NewPostScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-    >
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Text style={styles.cancelButton}>Cancel</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.postButton, isPostDisabled && styles.postButtonDisabled]}
-          onPress={handlePost}
-          disabled={isPostDisabled}
-          accessibilityRole="button"
-          accessibilityLabel="Post your new thread"
-        >
-          <Text style={styles.postButtonText}>{posts.length > 1 ? "Post All" : "Post"}</Text>
-        </TouchableOpacity>
-      </View>
-
-      <FlatList
-        data={posts}
-        renderItem={renderPostInput}
-        keyExtractor={item => item.key}
-        style={styles.scrollView}
-      />
-
-      <View style={styles.footer}>
-        <View style={styles.actionsContainer}>
-          <TouchableOpacity style={styles.actionButton} accessibilityLabel="Add image">
-            <Ionicons name="image-outline" size={24} color="#1DA1F2" />
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }} edges={['top']}>
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+      >
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()}>
+            <Text style={styles.cancelButton}>Cancel</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.actionButton} accessibilityLabel="Add GIF">
-            <Ionicons name="gift-outline" size={24} color="#1DA1F2" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.actionButton} accessibilityLabel="Add poll">
-            <Ionicons name="stats-chart-outline" size={24} color="#1DA1F2" />
+          <TouchableOpacity
+            style={[styles.postButton, isPostDisabled && styles.postButtonDisabled]}
+            onPress={handlePost}
+            disabled={isPostDisabled}
+            accessibilityRole="button"
+            accessibilityLabel="Post your new thread"
+          >
+            <Text style={styles.postButtonText}>{posts.length > 1 ? "Post All" : "Post"}</Text>
           </TouchableOpacity>
         </View>
-      </View>
-    </KeyboardAvoidingView>
+
+        <FlatList
+          data={posts}
+          renderItem={renderPostInput}
+          keyExtractor={item => item.key}
+          style={styles.scrollView}
+        />
+
+        <View style={styles.footer}>
+          <View style={styles.actionsContainer}>
+            <TouchableOpacity style={styles.actionButton} accessibilityLabel="Add image">
+              <Ionicons name="image-outline" size={24} color="#1DA1F2" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.actionButton} accessibilityLabel="Add GIF">
+              <Ionicons name="gift-outline" size={24} color="#1DA1F2" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.actionButton} accessibilityLabel="Add poll">
+              <Ionicons name="stats-chart-outline" size={24} color="#1DA1F2" />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
@@ -234,6 +242,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     lineHeight: 24,
     minHeight: 80,
+    textAlignVertical: 'top',
   },
   inputFooter: {
     flexDirection: 'row',
@@ -246,15 +255,14 @@ const styles = StyleSheet.create({
     color: '#6c757d',
   },
   addPostContainer: {
-    paddingLeft: 78, // Aligns with the start of the text input
+    paddingLeft: 78,
     paddingBottom: 15,
   },
   addPostButton: {
-    // Styling for the '+' button if needed
   },
   threadConnector: {
     position: 'absolute',
-    left: 38, // (48/2) + 15 - 1
+    left: 38,
     top: 60,
     bottom: -20,
     width: 2,
