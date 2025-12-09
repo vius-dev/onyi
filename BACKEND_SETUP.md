@@ -3892,3 +3892,125 @@ CREATE POLICY "posts_delete_owner" ON public.posts FOR DELETE USING (auth.uid() 
 
 
 
+
+
+Here’s a clean **single-post → comment → reply** structure in Markdown, using the same visual style:
+
+---
+
+### **Single Post (Simple Chain)**
+
+**Jordan Miles** @jmiles 3h
+
+> Just tried the new Focus Mode update — productivity jumped instantly. 🔥
+> Loving the minimal UI.
+> ❤️ 89 · ❤️ 12 · 🔁 12 · 💬 24
+
+---
+
+  **Top Comment**
+
+  > **Ava Chen** · @avacodes · 2h
+  >
+  > > Same here! Do you feel the animations make it smoother or slower?
+
+    **Reply to the Comment**
+
+    > **Jordan Miles** · @jmiles · 1h55m
+    >
+    > > Definitely smoother. The transitions feel intentional without slowing anything down.
+    >  ❤️ 124 · ❤️ 12 · 🔁 28 · 👀 1.2K
+
+
+And For Threaded Post (visual mockup)
+
+**Alex Rivera** @alexcodes 2h
+
+*1/3* Just pushed the first draft of the new threading UI — it 
+lets people reply to *specific sentences* inside a   thread. Big UX win. 🚀
+>  ❤️ 124 · ❤️ 12 · 🔁 28 · 👀 1.2K
+
+  **Comment to the first post in the thread**
+
+  > **Maya L.** · @mayal · 1h
+  >
+  > > Love this — finally a way to keep conversations organized. How does it handle edits?
+  > ❤️ 124 · ❤️ 12 · 🔁 28 · 👀 1.2K
+
+    **Reply to the Comment**
+
+    > **Alex Rivera** · @alexcodes · 1h
+    >
+    > > Edits append a small “(edited)” flag and keep a changelog for 24 hours. Thoughts?
+    > ❤️ 124 · ❤️ 12 · 🔁 28 · 👀 1.2K
+
+---
+
+**Alex Rivera** · @alexcodes · 1h45m
+>
+*2/3* The UI also highlights which sentence is being replied to, so replies stay in context.
+>  ❤️ 124 · ❤️ 12 · 🔁 28 · 👀 1.2K
+
+  **Comment to a specific sentence in post 2**
+
+  > **Sam K.** · @samk_dev · 50m
+  >
+  > > *"highlights which sentence is being replied to"* — love that. Does it scroll the thread to show the highlighted sentence automatically?
+  > ❤️ 124 · ❤️ 12 · 🔁 28 · 👀 1.2K
+
+    **Reply to the Comment**
+
+    > **Alex Rivera** · @alexcodes · 45m
+    >
+    > > Yes — when you tap a reply the thread scrolls and temporarily pulses the referenced sentence.
+    > ❤️ 124 · ❤️ 12 · 🔁 28 · 👀 1.2K
+
+---
+
+**Alex Rivera** · @alexcodes · 1h30m
+> 
+*3/3* We're rolling this out to beta users next week. If you want early access, DM me — limited slots. 🙏
+> ❤️ 124 · ❤️ 12 · 🔁 28 · 👀 1.2K
+
+  **Comment to the announcement (replying to post 3)**
+
+  > **Jordan P.** · @jordansays · 40m
+  >
+  > > DM sent! Any requirements for beta testers?
+  > ❤️ 124 · ❤️ 12 · 🔁 28 · 👀 1.2K
+
+    **Reply to the Comment**
+
+    > **Alex Rivera** · @alexcodes · 35m
+    >
+    > > Just active users who comment often — nothing technical.
+    > ❤️ 124 · ❤️ 12 · 🔁 28 · 👀 1.2K
+
+**A direct reply that quotes part of post 3**
+
+> **Rina** · @rinaruns · 30m
+>
+> > "limited slots" — please make sure testers represent diverse timezones / accessibility needs. 🙌
+> ❤️ 124 · ❤️ 12 · 🔁 28 · 👀 1.2K
+
+    **Reply to the Comment**
+
+    > **Alex Rivera** · @alexcodes · 28m
+    >
+    > > Absolutely — accessibility testing is part of the plan. Thanks for flagging it.
+    > ❤️ 124 · ❤️ 12 · 🔁 28 · 👀 1.2K
+
+---
+
+### Compact view (thread structure)
+
+1. **Tweet 1 (Alex)** — Intro / feature claim
+
+   * Comment (Maya) — question about edits → Reply (Alex)
+2. **Tweet 2 (Alex)** — UX detail (sentence highlighting)
+
+   * Comment (Sam) — question about scroll behavior → Reply (Alex)
+3. **Tweet 3 (Alex)** — Beta rollout announcement
+
+   * Comment (Jordan) — asks about requirements → Reply (Alex)
+   * Comment (Rina) — suggests accessibility inclusion → Reply (Alex)

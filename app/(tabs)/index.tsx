@@ -29,13 +29,11 @@ function buildThreadTree(posts: Post[], parentId: string | null = null): Post[] 
 // -----------------------------------------------------------
 // 🔥 Fetch posts and profiles from Supabase
 // -----------------------------------------------------------
-// NOTE: We fetch ONLY top-level posts (parent_post_id IS NULL) for the feed.
-// Replies are loaded lazily in the post detail view for performance.
-// The buildThreadTree function exists but is NOT used here.
+// NOTE: We fetch ALL posts (including replies) and then build a thread tree.
 // -----------------------------------------------------------
 const fetchPosts = async (currentUserId?: string): Promise<Post[]> => {
   try {
-    // 1. Fetch posts with joined user, counts, AND POLLS
+    // 1. Fetch ALL posts (including replies) with joined user, counts, AND POLLS
     const { data: postsData, error: postsError } = await supabase
       .from("posts")
       .select(`
@@ -50,7 +48,6 @@ const fetchPosts = async (currentUserId?: string): Promise<Post[]> => {
           votes:post_poll_votes(user_id, option_id)
         )
       `)
-      .is('parent_post_id', null) // Only top-level posts (no replies)
       .order("created_at", { ascending: false });
 
     if (postsError) throw postsError;
@@ -74,7 +71,7 @@ const fetchPosts = async (currentUserId?: string): Promise<Post[]> => {
     }
 
     // 3. Construct Post objects with User data & Polls & Reactions
-    const posts: Post[] = postsData.map((p: any) => {
+    const allPosts: Post[] = postsData.map((p: any) => {
       // User is already joined by Supabase (p.user)
       if (!p.user) {
         p.user = {
@@ -132,11 +129,12 @@ const fetchPosts = async (currentUserId?: string): Promise<Post[]> => {
         thread_id: p.thread_id,
         sequence_number: p.sequence_number,
         is_reply: p.is_reply,
+        parent_post_id: p.parent_post_id,
       };
     });
 
     // 4. Fetch thread_posts for posts that are part of a thread
-    const threadIds = new Set(posts.map(p => p.thread_id).filter(Boolean));
+    const threadIds = new Set(allPosts.map(p => p.thread_id).filter(Boolean));
     if (threadIds.size > 0) {
       const { data: threadPosts } = await supabase
         .from("posts")
@@ -153,14 +151,18 @@ const fetchPosts = async (currentUserId?: string): Promise<Post[]> => {
       });
 
       // Attach thread_posts to each post
-      posts.forEach(post => {
+      allPosts.forEach(post => {
         if (post.thread_id) {
           post.thread_posts = threadMap.get(post.thread_id) || [];
         }
       });
     }
 
-    return posts;
+    // 5. Build thread tree to nest replies under parents
+    const threadedPosts = buildThreadTree(allPosts, null);
+
+    // 6. Return only top-level posts (with nested children)
+    return threadedPosts;
 
   } catch (error) {
     console.error("Error fetching posts:", error);
