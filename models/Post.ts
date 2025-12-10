@@ -19,6 +19,7 @@ export interface Post {
   // Thread fields
   thread_id?: string | null;
   sequence_number?: number;
+  thread_total?: number;
   thread_posts?: Post[]; // Other posts in the same thread
 
   created_at: string;

@@ -13,4 +13,6 @@ export interface User {
   created_at: string;
   following_count?: number;
   followers_count?: number;
+  is_online?: boolean;
+  is_verified?: boolean;
 }

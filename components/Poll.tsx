@@ -1,4 +1,3 @@
-
 import { PollOption, Poll as PollType } from '@/models/Poll';
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useRef, useState } from 'react';
@@ -8,6 +7,18 @@ interface PollProps {
   poll: PollType;
   onVote: (pollId: string, optionIds: string[]) => void;
 }
+
+// Vibrant color palette for poll options
+const POLL_COLORS = [
+  '#1DA1F2', // Twitter Blue
+  '#17BF63', // Green
+  '#F91880', // Pink
+  '#FFAD1F', // Orange
+  '#7856FF', // Purple
+  '#FF6B6B', // Red
+  '#20C997', // Teal
+  '#6C5CE7', // Indigo
+];
 
 const Poll: React.FC<PollProps> = ({ poll, onVote }) => {
   const [timeLeft, setTimeLeft] = useState('');
@@ -27,7 +38,7 @@ const Poll: React.FC<PollProps> = ({ poll, onVote }) => {
       return;
     }
 
-    const startTime = poll.created_at ? new Date(poll.created_at).getTime() : Date.now() - 24 * 60 * 60 * 1000; // Default to 24h ago if missing
+    const startTime = poll.created_at ? new Date(poll.created_at).getTime() : Date.now() - 24 * 60 * 60 * 1000;
     const totalDuration = new Date(poll.expires_at).getTime() - startTime;
 
     const updateTimer = () => {
@@ -35,7 +46,6 @@ const Poll: React.FC<PollProps> = ({ poll, onVote }) => {
       const difference = new Date(poll.expires_at).getTime() - now;
 
       if (difference > 0) {
-        // Update progress bar
         const progress = (difference / totalDuration) * 100;
         Animated.timing(progressAnim, {
           toValue: progress,
@@ -43,7 +53,6 @@ const Poll: React.FC<PollProps> = ({ poll, onVote }) => {
           useNativeDriver: false,
         }).start();
 
-        // Update time left text
         const days = Math.floor(difference / (1000 * 60 * 60 * 24));
         const hours = Math.floor((difference / (1000 * 60 * 60)) % 24);
         const minutes = Math.floor((difference / 1000 / 60) % 60);
@@ -52,7 +61,6 @@ const Poll: React.FC<PollProps> = ({ poll, onVote }) => {
         else if (hours > 0) setTimeLeft(`${hours}h left`);
         else setTimeLeft(`${minutes}m left`);
 
-        // Handle pulsing animation
         if (difference < 60000) {
           Animated.loop(
             Animated.sequence([
@@ -61,26 +69,32 @@ const Poll: React.FC<PollProps> = ({ poll, onVote }) => {
             ])
           ).start();
         } else {
-          pulseAnim.setValue(1); // Reset pulse
+          // Stop any running animations before setting value
+          pulseAnim.stopAnimation(() => {
+            pulseAnim.setValue(1);
+          });
         }
-
       } else {
         setTimeLeft('Final results');
         progressAnim.setValue(0);
+        // Stop pulse animation when poll ends
+        pulseAnim.stopAnimation(() => {
+          pulseAnim.setValue(1);
+        });
       }
     };
 
-    updateTimer(); // Initial call
-    const timer = setInterval(updateTimer, 1000); // Update every second
+    updateTimer();
+    const timer = setInterval(updateTimer, 1000);
 
     return () => clearInterval(timer);
   }, [poll.created_at, poll.expires_at, hasEnded]);
 
   const getProgressBarColor = () => {
     const remainingTime = new Date(poll.expires_at).getTime() - Date.now();
-    if (remainingTime < 60000) return '#ff3838'; // Red
-    if (remainingTime < 300000) return '#ffab00'; // Yellow
-    return '#1DA1F2'; // Blue
+    if (remainingTime < 60000) return '#FF3838';
+    if (remainingTime < 300000) return '#FFAB00';
+    return '#1DA1F2';
   };
 
   const handleOptionPress = (optionId: string) => {
@@ -105,31 +119,52 @@ const Poll: React.FC<PollProps> = ({ poll, onVote }) => {
     const percentage = poll.total_votes > 0 ? (option.votes / poll.total_votes) * 100 : 0;
     const isMultipleChoiceSelection = !showResults && poll.allows_multiple_choices && selectedOptions.includes(option.id);
 
+    // Assign color based on index
+    const optionColor = POLL_COLORS[index % POLL_COLORS.length];
+
     return (
       <TouchableOpacity
         key={option.id}
-        style={styles.optionContainer}
+        style={[
+          styles.optionContainer,
+          isSelected && styles.optionContainerSelected,
+          isMultipleChoiceSelection && styles.optionContainerSelected,
+        ]}
         onPress={() => handleOptionPress(option.id)}
         disabled={showResults}
         accessible={true}
         accessibilityLabel={showResults ? `Option ${option.text}, ${percentage}%` : `Vote for ${option.text}`}
       >
         {showResults && (
-          <View style={[styles.progressBar, { width: `${percentage}%` }]} />
+          <View
+            style={[
+              styles.progressBar,
+              {
+                width: `${percentage}%`,
+                backgroundColor: optionColor,
+              }
+            ]}
+          />
         )}
         <View style={styles.optionTextContainer}>
-          <Text style={styles.optionText}>{option.text}</Text>
-          {showResults && <Text style={styles.percentageText}>{percentage.toFixed(1)}%</Text>}
+          <Text style={[styles.optionText, showResults && styles.optionTextBold]}>
+            {option.text}
+          </Text>
+          {showResults && (
+            <Text style={[styles.percentageText, { color: optionColor }]}>
+              {percentage.toFixed(1)}%
+            </Text>
+          )}
         </View>
-        {(showResults && isSelected) && (
-          <Ionicons name="checkmark-circle" size={24} color="#1DA1F2" style={styles.checkIcon} />
+        {showResults && isSelected && (
+          <Ionicons name="checkmark-circle" size={20} color={optionColor} style={styles.checkIcon} />
         )}
         {isMultipleChoiceSelection && (
-          <Ionicons name="checkbox" size={24} color="#1DA1F2" style={styles.checkIcon} />
+          <Ionicons name="checkbox" size={20} color="#1DA1F2" style={styles.checkIcon} />
         )}
       </TouchableOpacity>
     );
-  }
+  };
 
   return (
     <View style={styles.container}>
@@ -144,14 +179,15 @@ const Poll: React.FC<PollProps> = ({ poll, onVote }) => {
                   outputRange: ['0%', '100%'],
                 }),
                 backgroundColor: getProgressBarColor(),
-                opacity: pulseAnim,
               },
             ]}
           />
         </View>
       )}
 
-      <Text style={styles.question}>{poll.question}</Text>
+      {poll.question && (
+        <Text style={styles.question}>{poll.question}</Text>
+      )}
 
       {poll.media && (
         <TouchableOpacity
@@ -172,13 +208,22 @@ const Poll: React.FC<PollProps> = ({ poll, onVote }) => {
       </View>
 
       {poll.allows_multiple_choices && !showResults && (
-        <TouchableOpacity style={styles.submitButton} onPress={handleSubmitMultipleChoice} disabled={selectedOptions.length === 0}>
+        <TouchableOpacity
+          style={[
+            styles.submitButton,
+            selectedOptions.length === 0 && styles.submitButtonDisabled
+          ]}
+          onPress={handleSubmitMultipleChoice}
+          disabled={selectedOptions.length === 0}
+        >
           <Text style={styles.submitButtonText}>Submit Vote</Text>
         </TouchableOpacity>
       )}
 
       <View style={styles.footer}>
-        <Text style={styles.totalVotes}>{showResults ? `${poll.total_votes.toLocaleString()} votes` : ''}</Text>
+        <Text style={styles.totalVotes}>
+          {poll.total_votes > 0 ? `${poll.total_votes.toLocaleString()} ${poll.total_votes === 1 ? 'vote' : 'votes'}` : ''}
+        </Text>
         <Text style={styles.timeRemaining}>{timeLeft}</Text>
       </View>
     </View>
@@ -188,103 +233,127 @@ const Poll: React.FC<PollProps> = ({ poll, onVote }) => {
 const styles = StyleSheet.create({
   container: {
     borderWidth: 1,
-    borderColor: '#e1e8ed',
-    borderRadius: 15,
-    padding: 15,
-    marginBottom: 10,
+    borderColor: '#CFD9DE',
+    borderRadius: 12,
+    padding: 12,
+    backgroundColor: '#FFFFFF',
   },
   expirationBarContainer: {
-    height: 4,
-    backgroundColor: '#e1e8ed',
+    height: 3,
+    backgroundColor: '#EFF3F4',
     borderRadius: 2,
     overflow: 'hidden',
-    marginBottom: 10,
+    marginBottom: 12,
   },
   expirationBar: {
     height: '100%',
+    borderRadius: 2,
   },
   question: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginBottom: 10,
+    fontSize: 15,
+    fontWeight: '600',
+    marginBottom: 12,
+    color: '#0F1419',
+    lineHeight: 20,
   },
   mediaContainer: {
-    marginBottom: 10,
+    marginBottom: 12,
   },
   image: {
     width: '100%',
     height: 200,
-    borderRadius: 10,
+    borderRadius: 8,
+    backgroundColor: '#EFF3F4',
   },
   link: {
     color: '#1DA1F2',
     textDecorationLine: 'underline',
+    fontSize: 14,
   },
   optionsContainer: {
-    marginBottom: 10,
+    gap: 8,
   },
   optionContainer: {
     borderWidth: 1,
-    borderColor: '#e1e8ed',
+    borderColor: '#CFD9DE',
     borderRadius: 8,
     padding: 12,
-    marginBottom: 8,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     overflow: 'hidden',
     position: 'relative',
+    backgroundColor: '#FFFFFF',
+    minHeight: 44,
+  },
+  optionContainerSelected: {
+    borderColor: '#1DA1F2',
+    borderWidth: 2,
   },
   progressBar: {
     position: 'absolute',
     left: 0,
     top: 0,
     bottom: 0,
-    backgroundColor: '#1DA1F2',
-    opacity: 0.2,
+    opacity: 0.15,
+    borderRadius: 7,
   },
   optionTextContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
     flex: 1,
-    paddingRight: 5, // Space for checkmark
+    paddingRight: 8,
+    zIndex: 1,
   },
   optionText: {
-    fontSize: 16,
+    fontSize: 15,
     flexShrink: 1,
+    color: '#0F1419',
+    lineHeight: 20,
+  },
+  optionTextBold: {
+    fontWeight: '500',
   },
   percentageText: {
-    fontSize: 16,
-    fontWeight: 'bold',
+    fontSize: 15,
+    fontWeight: '700',
+    marginLeft: 12,
   },
   checkIcon: {
-    marginLeft: 10,
+    marginLeft: 8,
+    zIndex: 1,
   },
   submitButton: {
     backgroundColor: '#1DA1F2',
     borderRadius: 20,
     paddingVertical: 10,
     alignItems: 'center',
-    marginTop: 10,
+    marginTop: 8,
+  },
+  submitButtonDisabled: {
+    backgroundColor: '#AAB8C2',
+    opacity: 0.5,
   },
   submitButtonText: {
-    color: 'white',
-    fontWeight: 'bold',
-    fontSize: 16,
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 15,
   },
   footer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 10,
+    marginTop: 8,
   },
   totalVotes: {
-    fontSize: 14,
-    color: 'gray',
+    fontSize: 13,
+    color: '#536471',
   },
   timeRemaining: {
-    fontSize: 14,
-    color: 'gray',
+    fontSize: 13,
+    color: '#536471',
+    fontWeight: '500',
   },
 });
 

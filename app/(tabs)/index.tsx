@@ -1,18 +1,12 @@
-
 import { useAuth } from "@/contexts/AuthContext";
+import { Poll } from "@/models/Poll";
 import { Post } from "@/models/Post";
 import { User } from "@/models/User";
-import { supabase } from "@/utils/supabase"; // Import supabase
-
+import { supabase } from "@/utils/supabase";
 import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
-import { Alert, FlatList, RefreshControl, View } from "react-native";
+import { ActivityIndicator, Alert, FlatList, RefreshControl, StyleSheet, Text, View } from "react-native";
 import PostCard from "../../components/PostCard";
-
-
-// Placeholder for now - we will fetch real profile in component
-// Placeholder for now - we will fetch real profile in component
-const defaultUser: User | null = null;
 
 // -----------------------------------------------------------
 // 🔥 Utility: Build a thread tree from flat posts
@@ -25,37 +19,48 @@ function buildThreadTree(posts: Post[], parentId: string | null = null): Post[] 
       child_posts: buildThreadTree(posts, p.id),
     }));
 
-  // Debug logging
-  if (parentId === null) {
+  if (parentId === null && __DEV__) {
     console.log('🔍 buildThreadTree - Total posts:', posts.length);
-    console.log('🔍 buildThreadTree - Posts with parent_post_id:', posts.filter(p => p.parent_post_id).length);
     console.log('🔍 buildThreadTree - Top-level posts:', result.length);
-    console.log('🔍 buildThreadTree - First post children:', result[0]?.child_posts?.length || 0);
-
-    // Show which posts are top-level
-    console.log('🔍 Top-level post IDs:', result.map(p => p.id.substring(0, 8)));
-
-    // Show posts with parents
-    const postsWithParents = posts.filter(p => p.parent_post_id);
-    if (postsWithParents.length > 0) {
-      console.log('🔍 Posts with parents:', postsWithParents.map(p => ({
-        id: p.id.substring(0, 8),
-        parent: p.parent_post_id?.substring(0, 8)
-      })));
-    }
   }
 
   return result;
 }
 
 // -----------------------------------------------------------
-// 🔥 Fetch posts and profiles from Supabase
+// 🔥 Map poll data from Supabase to Poll interface
 // -----------------------------------------------------------
-// NOTE: We fetch ALL posts (including replies) and then build a thread tree.
+function mapPollData(rawPoll: any, currentUserId?: string): Poll | undefined {
+  if (!rawPoll) return undefined;
+
+  const options = (rawPoll.options || []).map((opt: any) => ({
+    id: opt.id,
+    text: opt.text,
+    votes: opt.votes || 0,
+  }));
+
+  // Get viewer's selected options
+  const viewerSelectedOptions = rawPoll.viewer_selected_options || [];
+
+  return {
+    id: rawPoll.id,
+    question: rawPoll.question,
+    options: options,
+    media: rawPoll.media || undefined,
+    allows_multiple_choices: rawPoll.allows_multiple_choices,
+    viewer_selected_options: viewerSelectedOptions,
+    total_votes: rawPoll.total_votes || 0,
+    expires_at: rawPoll.expires_at,
+    created_at: rawPoll.created_at,
+  };
+}
+
+// -----------------------------------------------------------
+// 🔥 Fetch posts with polls using RPC function
 // -----------------------------------------------------------
 const fetchPosts = async (currentUserId?: string): Promise<Post[]> => {
   try {
-    // 1. Fetch ALL posts (including replies) with joined user, counts, AND POLLS
+    // 1. Fetch ALL posts (including replies) with joined user and counts
     const { data: postsData, error: postsError } = await supabase
       .from("posts")
       .select(`
@@ -63,20 +68,16 @@ const fetchPosts = async (currentUserId?: string): Promise<Post[]> => {
         user:profiles(*),
         post_reactions(count),
         post_reposts(count),
-        post_quotes:post_quotes!post_quotes_quote_post_id_fkey(count),
-        post_polls(
-          *,
-          options:post_poll_options(*),
-          votes:post_poll_votes(user_id, option_id)
-        )
+        post_quotes:post_quotes!post_quotes_quote_post_id_fkey(count)
       `)
+      .is("deleted_at", null)
       .order("created_at", { ascending: false });
 
     if (postsError) throw postsError;
     if (!postsData || postsData.length === 0) return [];
 
     // 2. Fetch current user's reactions (if logged in)
-    let myReactionsMap = new Map<string, string>(); // postId -> 'like' | 'dislike'
+    let myReactionsMap = new Map<string, string>();
     if (currentUserId) {
       const postIds = postsData.map((p) => p.id);
       const { data: reactionsData, error: reactionsError } = await supabase
@@ -92,9 +93,35 @@ const fetchPosts = async (currentUserId?: string): Promise<Post[]> => {
       }
     }
 
-    // 3. Construct Post objects with User data & Polls & Reactions
+    // 3. Fetch polls for posts that have them
+    const postIds = postsData.map(p => p.id);
+    const { data: pollsData, error: pollsError } = await supabase
+      .from("polls")
+      .select("id, post_id")
+      .in("post_id", postIds);
+
+    // 4. Fetch poll details with viewer status using RPC
+    const pollsMap = new Map<string, Poll>();
+    if (pollsData && pollsData.length > 0) {
+      for (const pollRef of pollsData) {
+        const { data: pollData, error: pollError } = await supabase
+          .rpc('get_poll_with_viewer_status', {
+            poll_id_input: pollRef.id,
+            viewer_id: currentUserId || null
+          });
+
+        if (!pollError && pollData) {
+          const mappedPoll = mapPollData(pollData, currentUserId);
+          if (mappedPoll) {
+            pollsMap.set(pollRef.post_id, mappedPoll);
+          }
+        }
+      }
+    }
+
+    // 5. Construct Post objects with User data, Polls, and Reactions
     const allPosts: Post[] = postsData.map((p: any) => {
-      // User is already joined by Supabase (p.user)
+      // Ensure user data exists
       if (!p.user) {
         p.user = {
           id: p.author_id,
@@ -105,50 +132,18 @@ const fetchPosts = async (currentUserId?: string): Promise<Post[]> => {
         } as User;
       }
 
-      // Handle Poll Mapping
-      let poll = undefined;
-      if (p.post_polls && p.post_polls.length > 0) {
-        const rawPoll = p.post_polls[0]; // Assuming one poll per post
-        const options = rawPoll.options || [];
-
-        // Calculate vote counts per option
-        const votes = rawPoll.votes || [];
-        const voteCounts: Record<string, number> = {};
-        votes.forEach((v: any) => {
-          voteCounts[v.option_id] = (voteCounts[v.option_id] || 0) + 1;
-        });
-
-        const mappedOptions = options.map((opt: any) => ({
-          id: opt.id,
-          text: opt.label,
-          votes: voteCounts[opt.id] || 0
-        })).sort((a: any, b: any) => (a.position || 0) - (b.position || 0));
-
-        // Determine if user voted
-        const myVote = votes.find((v: any) => v.user_id === currentUserId);
-
-        poll = {
-          id: rawPoll.id,
-          question: rawPoll.question,
-          options: mappedOptions,
-          user_voted_option_id: myVote ? myVote.option_id : null,
-          expires_at: rawPoll.expires_at,
-        };
-      }
-
       return {
         ...p,
         user: p.user,
-        text: p.content,
-        content: p.content, // Keep both for compatibility
+        content: p.content,
         like_count: p.post_reactions?.[0]?.count || 0,
         repost_count: p.post_reposts?.[0]?.count || 0,
         quote_count: p.post_quotes?.[0]?.count || 0,
-        reply_count: p.reply_count || 0, // From database trigger
-        dislike_count: 0,
+        reply_count: p.reply_count || 0,
+        dislike_count: 0, // TODO: Add dislike count if needed
         is_deleted: !!p.deleted_at,
         my_reaction: myReactionsMap.get(p.id) || null,
-        poll: poll,
+        poll: pollsMap.get(p.id), // Attach poll data
         thread_id: p.thread_id,
         sequence_number: p.sequence_number,
         is_reply: p.is_reply,
@@ -156,15 +151,15 @@ const fetchPosts = async (currentUserId?: string): Promise<Post[]> => {
       };
     });
 
-    // 4. Fetch thread_posts for posts that are part of a thread
+    // 6. Fetch thread_posts for posts that are part of a thread
     const threadIds = new Set(allPosts.map(p => p.thread_id).filter(Boolean));
     if (threadIds.size > 0) {
       const { data: threadPosts } = await supabase
         .from("posts")
         .select("id, thread_id, sequence_number")
-        .in("thread_id", Array.from(threadIds));
+        .in("thread_id", Array.from(threadIds))
+        .eq("is_reply", false); // Only count thread posts
 
-      // Group by thread_id
       const threadMap = new Map<string, any[]>();
       threadPosts?.forEach(tp => {
         if (!threadMap.has(tp.thread_id)) {
@@ -173,31 +168,35 @@ const fetchPosts = async (currentUserId?: string): Promise<Post[]> => {
         threadMap.get(tp.thread_id)!.push(tp);
       });
 
-      // Attach thread_posts to each post
       allPosts.forEach(post => {
         if (post.thread_id) {
-          post.thread_posts = threadMap.get(post.thread_id) || [];
+          const threads = threadMap.get(post.thread_id) || [];
+          post.thread_posts = threads;
+          post.thread_total = threads.length;
         }
       });
     }
 
-    // 5. Build thread tree to nest replies under parents
+    // 7. Build thread tree to nest replies under parents
     const threadedPosts = buildThreadTree(allPosts, null);
 
-    // 6. Return only top-level posts (with nested children)
     return threadedPosts;
 
   } catch (error) {
     console.error("Error fetching posts:", error);
-    return [];
+    throw error; // Propagate error for better error handling
   }
 };
 
 export default function Index() {
   const [posts, setPosts] = useState<Post[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const { user: authUser } = useAuth();
   const [currentProfile, setCurrentProfile] = useState<User | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
+  // Fetch current user profile
   useEffect(() => {
     if (authUser) {
       supabase
@@ -211,67 +210,115 @@ export default function Index() {
     }
   }, [authUser]);
 
-  const loadPosts = async () => {
-    const data = await fetchPosts(authUser?.id);
-    setPosts(data);
-  };
+  // Load posts with error handling
+  const loadPosts = useCallback(async () => {
+    try {
+      setError(null);
+      const data = await fetchPosts(authUser?.id);
+      setPosts(data);
+    } catch (err) {
+      console.error("Error loading posts:", err);
+      setError("Failed to load posts. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }, [authUser?.id]);
 
   // Initial load
   useEffect(() => {
     loadPosts();
-  }, []);
+  }, [loadPosts]);
 
-  // Poll for refresh / Auto-update on focus
+  // Auto-refresh on focus
   useFocusEffect(
     useCallback(() => {
-      loadPosts();
-    }, [])
+      if (!loading) {
+        loadPosts();
+      }
+    }, [loadPosts, loading])
   );
 
-  const [refreshing, setRefreshing] = useState(false);
-
+  // Pull-to-refresh
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await loadPosts();
     setRefreshing(false);
-  }, []);
+  }, [loadPosts]);
 
-  const handleVote = (pollId: string, optionIds: string[]) => {
-    Alert.alert("Voted!", `Poll: ${pollId}, Options: ${optionIds.join(", ")}`);
+  // -----------------------------------------------------------
+  // Action Handlers
+  // -----------------------------------------------------------
+
+  const handleVote = async (pollId: string, optionIds: string[]) => {
+    if (!authUser) {
+      Alert.alert("Login Required", "Please log in to vote.");
+      return;
+    }
+
+    try {
+      // Call the cast_poll_vote RPC function
+      const { data: updatedPoll, error } = await supabase
+        .rpc('cast_poll_vote', {
+          poll_id_input: pollId,
+          option_ids_input: optionIds,
+          voter_id: authUser.id
+        });
+
+      if (error) throw error;
+
+      // Update the poll in state with new vote data
+      if (updatedPoll) {
+        const mappedPoll = mapPollData(updatedPoll, authUser.id);
+
+        setPosts(currentPosts =>
+          updatePostsRecursively(currentPosts, (post) => {
+            if (post.poll?.id === pollId) {
+              return { ...post, poll: mappedPoll };
+            }
+            return post;
+          })
+        );
+      }
+
+    } catch (error) {
+      console.error("Error voting on poll:", error);
+      Alert.alert("Vote Failed", "Could not submit your vote. Please try again.");
+    }
   };
 
   const onLike = async (postId: string) => {
-    if (!authUser) return;
+    if (!authUser) {
+      Alert.alert("Login Required", "Please log in to like posts.");
+      return;
+    }
 
-    // 1. Optimistic Update
-    setPosts((currentPosts) =>
-      currentPosts.map((p) => {
-        if (p.id !== postId) return p;
+    // Optimistic update
+    setPosts(currentPosts =>
+      updatePostsRecursively(currentPosts, (post) => {
+        if (post.id !== postId) return post;
 
-        const wasLiked = p.my_reaction === "like";
-        const wasDisliked = p.my_reaction === "dislike";
+        const wasLiked = post.my_reaction === "like";
+        const wasDisliked = post.my_reaction === "dislike";
 
-        // Toggle like
         if (wasLiked) {
-          return { ...p, my_reaction: null, like_count: p.like_count - 1 };
+          return { ...post, my_reaction: null, like_count: post.like_count - 1 };
         } else {
           return {
-            ...p,
+            ...post,
             my_reaction: "like",
-            like_count: p.like_count + 1,
-            dislike_count: wasDisliked ? p.dislike_count - 1 : p.dislike_count,
+            like_count: post.like_count + 1,
+            dislike_count: wasDisliked ? post.dislike_count - 1 : post.dislike_count,
           };
         }
       })
     );
 
-    // 2. DB Update
+    // DB Update
     try {
-      const post = posts.find((p) => p.id === postId);
+      const post = findPostById(posts, postId);
       const wasLiked = post?.my_reaction === "like";
 
       if (wasLiked) {
-        // Remove like
         await supabase
           .from("post_reactions")
           .delete()
@@ -279,13 +326,11 @@ export default function Index() {
           .eq("user_id", authUser.id)
           .eq("type", "like");
       } else {
-        // Add like (and remove dislike if exists)
-        // Batch operations? Or sequential. Sequential is safer for now.
         await supabase
           .from("post_reactions")
           .delete()
           .eq("post_id", postId)
-          .eq("user_id", authUser.id); // Remove ANY reaction
+          .eq("user_id", authUser.id);
 
         await supabase.from("post_reactions").insert({
           post_id: postId,
@@ -295,35 +340,39 @@ export default function Index() {
       }
     } catch (error) {
       console.error("Error updating like:", error);
-      // Revert optimistic update? For MVP mostly fine to ignore or reload.
+      // Revert on error
+      await loadPosts();
     }
   };
 
   const onDislike = async (postId: string) => {
-    if (!authUser) return;
+    if (!authUser) {
+      Alert.alert("Login Required", "Please log in to dislike posts.");
+      return;
+    }
 
-    setPosts((currentPosts) =>
-      currentPosts.map((p) => {
-        if (p.id !== postId) return p;
+    setPosts(currentPosts =>
+      updatePostsRecursively(currentPosts, (post) => {
+        if (post.id !== postId) return post;
 
-        const wasLiked = p.my_reaction === "like";
-        const wasDisliked = p.my_reaction === "dislike";
+        const wasLiked = post.my_reaction === "like";
+        const wasDisliked = post.my_reaction === "dislike";
 
         if (wasDisliked) {
-          return { ...p, my_reaction: null, dislike_count: p.dislike_count - 1 };
+          return { ...post, my_reaction: null, dislike_count: post.dislike_count - 1 };
         } else {
           return {
-            ...p,
+            ...post,
             my_reaction: "dislike",
-            dislike_count: p.dislike_count + 1,
-            like_count: wasLiked ? p.like_count - 1 : p.like_count,
+            dislike_count: post.dislike_count + 1,
+            like_count: wasLiked ? post.like_count - 1 : post.like_count,
           };
         }
       })
     );
 
     try {
-      const post = posts.find((p) => p.id === postId);
+      const post = findPostById(posts, postId);
       const wasDisliked = post?.my_reaction === "dislike";
 
       if (wasDisliked) {
@@ -348,21 +397,67 @@ export default function Index() {
       }
     } catch (error) {
       console.error("Error updating dislike:", error);
+      await loadPosts();
     }
   };
 
-  const onRepost = (id: string) => console.log("Reposted", id);
-  const onQuote = (p: Post) => console.log("Quoted", p.id);
+  const onRepost = (id: string) => {
+    Alert.alert("Coming Soon", "Repost feature is under development.");
+  };
+
+  const onQuote = (p: Post) => {
+    Alert.alert("Coming Soon", "Quote feature is under development.");
+  };
+
   const onDelete = async (id: string) => {
-    const { error } = await supabase.from('posts').delete().eq('id', id);
-    if (!error) {
-      setPosts(current => current.filter(p => p.id !== id));
-    } else {
+    try {
+      const { error } = await supabase
+        .from('posts')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('id', id);
+
+      if (!error) {
+        setPosts(currentPosts =>
+          updatePostsRecursively(currentPosts, (post) =>
+            post.id === id ? { ...post, is_deleted: true } : post
+          )
+        );
+      } else {
+        Alert.alert("Error", "Could not delete post");
+      }
+    } catch (error) {
+      console.error("Error deleting post:", error);
       Alert.alert("Error", "Could not delete post");
     }
   };
 
-  if (!currentProfile) return <View style={{ flex: 1, backgroundColor: 'white' }}><FlatList data={[]} renderItem={null} /></View>; // Loading state
+  // -----------------------------------------------------------
+  // Render
+  // -----------------------------------------------------------
+
+  if (loading) {
+    return (
+      <View style={styles.centerContainer}>
+        <ActivityIndicator size="large" color="#1DA1F2" />
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.centerContainer}>
+        <Text style={styles.errorText}>{error}</Text>
+      </View>
+    );
+  }
+
+  if (!currentProfile) {
+    return (
+      <View style={styles.centerContainer}>
+        <ActivityIndicator size="large" color="#1DA1F2" />
+      </View>
+    );
+  }
 
   const renderPost = ({ item }: { item: Post }) => (
     <PostCard
@@ -378,16 +473,84 @@ export default function Index() {
   );
 
   return (
-    <View style={{ flex: 1, backgroundColor: "white" }}>
+    <View style={styles.container}>
       <FlatList
         data={posts}
         renderItem={renderPost}
-        keyExtractor={(item) => item.id.toString()}
-        style={{ flex: 1 }}
+        keyExtractor={(item) => item.id}
+        contentContainerStyle={posts.length === 0 ? styles.emptyContainer : undefined}
+        ListEmptyComponent={
+          <View style={styles.centerContainer}>
+            <Text style={styles.emptyText}>No posts yet. Start sharing!</Text>
+          </View>
+        }
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={["#1DA1F2"]}
+            tintColor="#1DA1F2"
+          />
         }
       />
     </View>
   );
 }
+
+// -----------------------------------------------------------
+// Helper Functions
+// -----------------------------------------------------------
+
+// Recursively update posts (handles nested child_posts)
+function updatePostsRecursively(posts: Post[], updateFn: (post: Post) => Post): Post[] {
+  return posts.map(post => {
+    const updatedPost = updateFn(post);
+    if (updatedPost.child_posts && updatedPost.child_posts.length > 0) {
+      return {
+        ...updatedPost,
+        child_posts: updatePostsRecursively(updatedPost.child_posts, updateFn)
+      };
+    }
+    return updatedPost;
+  });
+}
+
+// Recursively find a post by ID
+function findPostById(posts: Post[], postId: string): Post | null {
+  for (const post of posts) {
+    if (post.id === postId) return post;
+    if (post.child_posts && post.child_posts.length > 0) {
+      const found = findPostById(post.child_posts, postId);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  emptyContainer: {
+    flexGrow: 1,
+    justifyContent: 'center',
+  },
+  errorText: {
+    fontSize: 16,
+    color: '#E53935',
+    textAlign: 'center',
+    paddingHorizontal: 20,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#536471',
+    textAlign: 'center',
+  },
+});
